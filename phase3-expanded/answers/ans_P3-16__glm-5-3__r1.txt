@@ -1,0 +1,10 @@
+1. **x at the ELA**: 3000 m — 3000 − 0.1x = 2700 → x = 3000 m.
+2. **Glacier length L**: 6000 m — q(x) = β(300x − 0.05x²), zero again at x = 6000 m.
+3. **Terminus balance b(L)**: −2.1 m/a — 0.007 × (300 − 600).
+4. **Maximum flux q_max**: 3150 m²/a — at x = 3000 m: 0.007 × (900,000 − 450,000).
+5. **Mean speed ū**: 21 m/a — ū = q_max/H = 3150/150; **u_s** = (5/4)ū = 26.25 m/a.
+6. **Driving stress τ**: 132.4 kPa — 900 × 9.81 × 150 × 0.1 = 132,435 Pa.
+7. **Rate factor A**: ≈ 1.51 × 10⁻¹⁶ Pa⁻³ a⁻¹ — A = ū(n+2)/(2Hτ³) = 105/(300 × 2.32 × 10¹⁵).
+8. **A/A0**: ≈ 2.0.
+
+A ratio well above 1 means the ice is much softer than the reference (for example warmer ice), so deformation alone can supply the required speed with no basal sliding. If the real ice is closer to A0, the excess instead signals that part of the actual motion must come from sliding, which was assumed away here.

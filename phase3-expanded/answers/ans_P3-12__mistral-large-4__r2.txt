@@ -1,0 +1,11 @@
+1. **Project.toml:11 — critical.** `julia = "1.12"` violates the project rule "Julia 1.11 only". Fix: revert to `julia = "1.11"`.
+2. **Manifest.toml — critical.** The diff modifies `Manifest.toml`; the rule is it is never committed. Fix: revert this file and keep it out of the commit.
+3. **src/LossV.jl, `loss_grad!` — critical.** It is no longer the exact gradient of `loss_value`: it ignores the mask (NaN in `pred`/`obs` leaks into `g`), omits the `/ sum(mask)` factor, and `l.scale^2` throws a `MethodError` when `scale = nothing`. Fix: compute `s` the same way as `loss_value`, then `g .= ifelse.(mask, 2 .* (pred .- obs) ./ s^2 ./ sum(mask), 0)`.
+4. **src/LossV.jl, `loss_value` mask — major.** Gaps are NaN in `obs` per the rules, but the mask is `.!isnan.(pred)` only, so a NaN in `obs` makes the residual NaN and `mean(obs)` (the default scale) becomes NaN too. Fix: `mask = .!isnan.(pred) .& .!isnan.(obs)` and use a masked mean for `s`.
+5. **test/test_lossV.jl, `fd_check` — major.** `atol = 1.0` makes the finite-difference check vacuous; any gradient passes. Fix: restore a tight tolerance (e.g. `1e-6`) once `loss_grad!` is correct.
+6. **test/test_lossV.jl — minor.** The new NaN test puts the gap in `pred`, not in `obs`, so the actual gap convention is untested. Fix: add a case with NaN in `obs`.
+7. **src/LossV.jl, outer constructor — minor.** `LossV{Float64}(scale)` hardcodes the type parameter, discarding `T` for non-Float64 scales. Fix: `LossV(scale) = LossV{typeof(scale)}(scale)`-style parametric constructor.
+
+Fine: the `Union{T,Nothing}` field and `scale = nothing` default are consistent; the first test's new expected value 0.5 matches the new `/sum(mask)` normalization; `LossV(scale=2.0)` still works.
+
+VERDICT: request changes

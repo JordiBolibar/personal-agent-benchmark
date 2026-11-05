@@ -1,0 +1,8 @@
+1. x_ELA = **3000 m** — from 3000 − 0.1x = 2700.
+2. L = **6000 m** — q = 2.1x − 0.00035x², q(L)=0.
+3. b(L) = **−2.1 m a⁻¹ ice equiv.** — b = 2.1 − 0.0007x at x=6000.
+4. q_max = **3150 m² a⁻¹ per m width** — at x=3000 where b=0.
+5. ū = **21 m a⁻¹**, u_s = **26.25 m a⁻¹** — ū = q_max/H = 3150/150; u_s = (5/4)ū.
+6. τ = **132.435 kPa** — τ = 900·9.81·150·0.1 = 132435 Pa.
+7. A = **1.507×10⁻¹⁶ Pa⁻³ a⁻¹** — A = ū(n+2)/(2τ³H) = 0.35/τ³.
+8. A/A0 = **1.99 dimensionless** — about twice the reference. A ratio well above 1 would mean the ice deforms much more easily than the reference creep law assumes, e.g. warmer/softer ice or enhanced fabric; if A should equal A0, extra motion such as basal sliding would be needed.

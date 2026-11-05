@@ -1,0 +1,21 @@
+**Findings**
+
+1. `Manifest.toml:2` (critical): the diff commits/edits the manifest. Project rule: `Manifest.toml` is never committed. Fix: drop this file from the commit and leave it untracked locally.
+
+2. `Project.toml:8` (critical): Julia compat bumped to `"1.12"`. Rule says Julia 1.11 only; 1.11 users can no longer load the package. Fix: revert to `"1.11"`.
+
+3. `src/LossV.jl`, `loss_grad!` (critical): it is no longer the exact gradient of `loss_value` w.r.t. `pred`. It misses the `1/sum(mask)` factor, applies no mask (NaNs leak into `g`), and uses `l.scale`, which is `nothing` by default -> `^2` on `Nothing` errors. Fix: compute `s` and the mask exactly as in `loss_value`, then `g[mask] = 2 .* (pred[mask] .- obs[mask]) ./ s^2 ./ sum(mask)` and `g[.!mask] = 0`.
+
+4. `src/LossV.jl`, `loss_value`, `mask = .!isnan.(pred)` (critical): gaps are NaN in `obs`, not `pred`. With real data nothing is masked, the loss is NaN. Fix: mask `obs` (optionally both).
+
+5. `src/LossV.jl`, `s = mean(obs)` (major): with any NaN in `obs`, `mean(obs)` is NaN, so the default `LossV()` gives a NaN loss. Fix: default `scale = 1.0` or use `mean(obs[mask])`. Also needs `Statistics` imported.
+
+6. `test/test_lossV.jl`, `atol = 1.0` (major): loosening `fd_check` from `1e-6` to `1.0` only hides finding 3. Revert after fixing the gradient.
+
+7. `test/test_lossV.jl`, NaN test (major): NaN is placed in `pred`, contradicting the rule; it passes while masking the wrong array. Fix: put NaN in `obs` and add a masked-`LossV()` case.
+
+8. `src/LossV.jl`, `/ sum(mask)` (minor): if all points are gaps, this divides by zero. Guard `sum(mask) > 0`.
+
+Fine: the `Union{T,Nothing}` field and keyword constructor; the mean-normalization itself, matched by the first test's updated value `0.5`.
+
+VERDICT: request changes

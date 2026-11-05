@@ -1,0 +1,52 @@
+**1. Discrete adjoint (general f, N steps)**
+
+Lagrangian for the Euler map:
+L = ½u_N² + Σ_{k=0}^{N−1} λ_{k+1} [u_k + Δt f(u_k, θ) − u_{k+1}]
+
+Stationarity ∂L/∂u_k = 0 gives the backward recursion and terminal condition; ∂L/∂θ gives the gradient (envelope theorem):
+
+- λ_N = ∂g/∂u_N = u_N
+- λ_k = λ_{k+1} (1 + Δt f_u(u_k, θ)), k = N−1,…,0
+- dJ_d/dθ = Δt Σ_{k=0}^{N−1} λ_{k+1} f_θ(u_k, θ)
+
+Identical to the chain rule with λ_k ≡ ∂J_d/∂u_k: forward sensitivities s_{k+1} = (1 + Δt f_u)s_k + Δt f_θ, s_0 = 0, give the same value.
+
+**2. Discrete solve and exact discrete gradient**
+
+Here f_u = −3θu², f_θ = −u³.
+
+- u_1 = 1 + 0.5(−1) = 0.5
+- u_2 = 0.5 + 0.5(−0.125) = 0.4375
+- J_d = ½(0.4375)² = 0.095703125
+
+Discrete adjoint:
+- λ_2 = 0.4375
+- λ_1 = 0.4375 × (1 − 0.5·0.75) = 0.4375 × 0.625 = 0.2734375
+- λ_0 = 0.2734375 × (1 − 0.5·3) = −0.13671875
+
+dJ_d/dθ = 0.5[λ_1(−1) + λ_2(−0.125)] = 0.5(−0.328125) = **−0.1640625**
+
+**3. Discretized continuous adjoint**
+
+- λ̃_2 = u_2 = 0.4375
+- λ̃_1 = 0.4375 × (1 + 0.5·f_u(u_2)) = 0.4375 × 0.712890625 = 0.3118896484375
+- λ̃_0 = 0.3118896484375 × (1 + 0.5·f_u(u_1)) = 0.3118896484375 × 0.625 = 0.1949310302734375
+- G̃ = 0.5[λ̃_0(−1) + λ̃_1(−0.125)] = 0.5(−0.233917236328125) = **−0.1169586181640625**
+
+**4. Exact continuous solution**
+
+du/u³ = −θ dt gives u(t) = (1 + 2θt)^(−1/2), so u(1) = 3^(−1/2) = 0.57735026918962576, J = 1/6 = 0.16666666666666667.
+
+J = ½(1 + 2θT)^(−1) ⟹ dJ/dθ = −T(1 + 2θT)^(−2) = **−1/9 = −0.11111111111111111** at θ = T = 1. (Adjoint check: λ(t) = (1+2t)^(3/2)/9, ∫₀¹ λ(−u³)dt = −1/9.)
+
+**5. FD check, AD, and the gap**
+
+FD on the code matches the **item 2** value, −0.1640625: J_d(θ) is an explicit composition of Euler steps, and FD differentiates exactly the function the code computes, up to truncation error. An AD tool that differentiates through the solver steps (forward or reverse mode over the unrolled map) differentiates the same computational graph, so it gives −0.1640625 too. Only "differentiate-then-discretize" (numerically solving the adjoint ODE, as in item 3) gives a different number, because differentiation and discretization do not commute at finite Δt: the Euler factor 1 + Δt f_u is a first-order approximation of the propagator exp(f_u Δt), and item 3 samples f_u at u_{k+1} and uses a rectangle-rule quadrature.
+
+As Δt → 0, both gradients are first-order consistent approximations of the same continuous adjoint, so each converges to −1/9 with O(Δt) error and their gap is O(Δt): per-step discrepancy O(Δt²) over O(1/Δt) steps (plus quadrature error). The current gap is 0.0471038818359375; it halves when Δt halves.
+
+| Gradient | Value |
+|---|---|
+| dJ_d/dθ (exact discrete; matched by FD and step-wise AD) | −0.1640625 |
+| G̃ (discretized continuous adjoint, item 3) | −0.1169586181640625 |
+| dJ/dθ (exact continuous, item 4) | −1/9 ≈ −0.111111111111111 |

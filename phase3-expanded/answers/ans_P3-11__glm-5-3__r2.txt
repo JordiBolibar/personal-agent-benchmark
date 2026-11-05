@@ -1,0 +1,9 @@
+A. `xerj search "SIA2D thickness cell faces" --prefix huginn-src`
+
+B. Open result 2 (`src/losses/masks.jl:12`) first: it holds the `apply_loss_mask` definition with the default `Hmin = 5.0`. Before editing, verify the cited file against the working tree (the index can be stale), confirm the `5.0` default is still there, and check callers that override it — `LossH.jl:40` passes `Hmin = l.Hmin`, so that path reads the threshold from config, not the signature. Result 1 is only a historical note saying the margin mask moved; it carries no threshold value, so editing there would do nothing.
+
+C. `grep -n "restart" /home/user/workstation/scripts/paseo-watchdog.sh`
+
+D. `xerj def` is forbidden for Julia symbols — wrong answers. The second command is unscoped — it lacks a prefix. Correct: `xerj search "apply_loss_mask" --prefix odinn-src`
+
+E. `grep -n "Hmin" /home/user/worktrees/feature-x/src/losses/new_mask.jl`

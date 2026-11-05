@@ -1,0 +1,7 @@
+1. It went over its declared memory: peak RSS 9.4 GB vs 6 GB declared, so it was killed (exit 137). All 3 tries failed the same way.
+
+2. `qretry 0107 -m 12`
+
+3. 0108 depends on 0107 and stays QUEUED until 0107 is DONE. When the rerun finishes successfully, 0108 starts automatically. You must not cancel or resubmit it — no action needed.
+
+4. From iteration 840, its last saved checkpoint (841–851 had no checkpoint, so that work is lost and redone).

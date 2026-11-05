@@ -1,0 +1,8 @@
+1. \(x_{ELA}=(3000-2700)/0.1=3000\ \text{m}\)
+2. \(q(x)=2.1x-0.00035x^2\); \(q(L)=0\Rightarrow L=6000\ \text{m}\)
+3. \(b(L)=0.007(2400-2700)=-2.1\ \text{m a}^{-1}\)
+4. Max flux at \(x=3000\): \(q_{\max}=3150\ \text{m}^2\text{a}^{-1}\)
+5. \(\bar u=q_{\max}/H=3150/150=21\ \text{m a}^{-1}\); \(u_s=\frac54\bar u=26.25\ \text{m a}^{-1}\)
+6. \(\tau=900(9.81)(150)(0.1)=132435\ \text{Pa}=132.4\ \text{kPa}\)
+7. \(A=\bar u(n+2)/(2\tau^3H)=1.51\times10^{-16}\ \text{Pa}^{-3}\text{a}^{-1}\)
+8. Ratio \(=1.51\times10^{-16}/7.57\times10^{-17}=1.99\) dimensionless. This means the ice deforms about twice as fast as the reference ice at the same stress, i.e. warmer or softer ice; with \(A_0\) fixed the deformation speeds would be about half.

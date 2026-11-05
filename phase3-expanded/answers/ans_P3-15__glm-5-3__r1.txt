@@ -1,0 +1,48 @@
+**1. Discrete adjoint (general f, N steps)**
+
+Forward Euler: u_{k+1} = u_k + Δt·f(u_k, θ), k = 0,…,N−1; J_d = J_d(u_N), u_0 fixed. Lagrangian:
+
+L = J_d + Σ_{k=0}^{N−1} λ_{k+1} (u_k + Δt f(u_k, θ) − u_{k+1})
+
+Stationarity in u_k gives the backward recursion and the gradient:
+
+- λ_N = ∂J_d/∂u_N
+- λ_k = (1 + Δt f_u(u_k, θ)) λ_{k+1}, k = N−1,…,0 (vector case: I + Δt ∂f/∂u applied on the adjoint)
+- dJ_d/dθ = Δt Σ_{k=0}^{N−1} λ_{k+1} f_θ(u_k, θ)
+
+This is exact: it is just the chain rule through du_{k+1}/dθ = (1 + Δt f_u(u_k)) du_k/dθ + Δt f_θ(u_k).
+
+**2. Values**
+
+f_u = −3θu², f_θ = −u³.
+
+- u_1 = 1 − 0.5·1 = 0.5
+- u_2 = 0.5 − 0.5·(0.5)³ = 0.4375
+- J_d = ½(0.4375)² = 0.095703125
+
+Adjoint: λ_2 = u_2 = 0.4375; λ_1 = 0.4375·(1 − 0.375) = 0.2734375; λ_0 = 0.2734375·(1 − 1.5) = −0.13671875.
+
+dJ_d/dθ = 0.5[λ_1·(−1) + λ_2·(−0.125)] = 0.5(−0.328125) = **−0.1640625**. Check: du_2/dθ = −0.375, then u_2·(−0.375) = −0.1640625.
+
+**3. Discretized continuous adjoint**
+
+- λ̃_2 = 0.4375
+- λ̃_1 = 0.4375·(1 − 0.5·3·0.4375²) = 0.4375·0.712890625 = 0.3118896484375
+- λ̃_0 = 0.3118896484375·(1 − 0.375) = 0.1949310302734375
+- G̃ = 0.5[λ̃_0·(−1) + λ̃_1·(−0.125)] = **−0.1169586181640625**
+
+**4. Exact solution**
+
+u(t) = (1 + 2θt)^{−1/2}. So u(1) = 1/√3 = 0.577350269189626, J = ½u(1)² = 1/6 = 0.1666666666666667. Differentiating: dJ/dθ = −T(1 + 2θT)^{−2} = **−1/9 = −0.1111111111111111**.
+
+**5. Which value FD and AD match**
+
+FD on the code that computes J_d matches item 2, −0.1640625 (up to O(ε²) for central differences). Reason: J_d(θ) is a plain function of θ; its exact derivative is the discrete gradient. AD through the solver steps gives the same −0.1640625 exactly: reverse-mode AD of the unrolled Euler loop reproduces the item 2 recursion term by term; forward mode reproduces the tangent. Neither matches G̃, because G̃ differentiates the continuous adjoint ODE, not the discrete computation.
+
+The gap between items 2 and 3 is |−0.1640625 + 0.1169586181640625| = 0.0471038818359375 at Δt = 0.5, and shrinks as **O(Δt)**. Item 2 is the exact derivative of an O(Δt)-accurate J_d; item 3 is a first-order discretization of the true adjoint (f_u evaluated at the shifted node u_{k+1}, λ̃_k paired with f_θ(u_k)). Both converge to −1/9 at first order, so their difference halves with Δt.
+
+| Gradient | Value |
+|---|---|
+| Item 2: dJ_d/dθ (discrete adjoint / exact derivative of J_d) | −0.1640625 |
+| Item 3: G̃ (discretized continuous adjoint) | −0.1169586181640625 |
+| Item 4: dJ/dθ (exact, continuous) | −0.1111111111111111 |

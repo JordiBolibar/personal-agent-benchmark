@@ -1,0 +1,5 @@
+```shell
+claude -p 'Repo: /home/user/julia/ODINN.jl. Branch: fix/lossHV-docs. First step: confirm the branch by reading the file .git/HEAD in the repo root; it must contain refs/heads/fix/lossHV-docs, otherwise stop and report that the branch is wrong. Goal: check whether the defaults of LossHV in the code under src/losses/ agree with the defaults documented in docs/src/losses.md. For every mismatch, report file:line, the value in the code, and the value in the docs. If code and docs agree, say so explicitly. Constraints: strictly read-only; do not edit, create, or delete any file; do not run Julia, git, or any shell command; use only the Read, Grep and Glob tools. Output format: plain text, one line per mismatch as file:line code-default vs doc-default, or a single clear statement that they agree.' --output-format text --allowedTools "Read Grep Glob"
+```
+
+Notes: the agent verifies the branch via `.git/HEAD` since it has no shell for git; the contract forbids edits and Julia so it stays read-only.

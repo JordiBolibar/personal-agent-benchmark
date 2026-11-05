@@ -1,0 +1,4 @@
+1. Exit 137 means the job was killed for going over its memory limit: it declared 6 GB but peaked at 9.4 GB RSS.
+2. `qretry 0107 -m 12` (new limit = ceil(1.2 × 9.4) = ceil(11.28) = 12 GB).
+3. 0108 is QUEUED because it depends on 0107 (`-a 0107`). Once the retried 0107 finishes DONE, 0108 starts automatically — nothing to do for it.
+4. From iteration 840, the last checkpoint saved (iter 851 only printed a loss, no checkpoint).

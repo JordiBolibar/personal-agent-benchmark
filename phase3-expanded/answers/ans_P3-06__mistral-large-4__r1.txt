@@ -1,0 +1,30 @@
+```python
+import numpy as np
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from datetime import date, timedelta
+
+def plot_dhdt(npz_path, out_png):
+    d = np.load(npz_path)
+    dhdt, x, y, t = d["dhdt"], d["x"], d["y"], float(d["time"])
+    finite = dhdt[np.isfinite(dhdt)]
+    if finite.size == 0:
+        raise ValueError("all values are NaN")
+    vmax = float(np.abs(finite).max()) or 1.0
+    cmap = plt.get_cmap("RdBu").copy()
+    cmap.set_bad("grey")
+    year = int(t)
+    leap = year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
+    days = 366 if leap else 365
+    day = date(year, 1, 1) + timedelta(days=int((t - year) * days))
+    fig, ax = plt.subplots()
+    im = ax.imshow(dhdt, extent=[x.min(), x.max(), y.min(), y.max()],
+                   origin="lower", aspect="equal", cmap=cmap,
+                   vmin=-vmax, vmax=vmax)
+    ax.set_title(day.strftime("%Y-%m-%d"))
+    fig.colorbar(im, ax=ax).set_label("dH/dt (m/a)")
+    fig.savefig(out_png)
+    plt.close(fig)
+```
+2015-07-02

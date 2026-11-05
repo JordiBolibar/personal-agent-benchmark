@@ -1,0 +1,48 @@
+```julia
+# Melt sum, accumulated in input order.
+function _melt(T, ddf, T_melt)
+    melt = 0.0
+    for t in T
+        if t > T_melt
+            melt += ddf * (t - T_melt)
+        end
+    end
+    return melt
+end
+
+# Solid precipitation, still indexed by T: a short P fails at the same index.
+function _accumulation(T, P, pf, T_snow)
+    acc = 0.0
+    for i in eachindex(T)
+        if T[i] < T_snow
+            acc += pf * P[i]
+        end
+    end
+    return acc
+end
+
+function mb_report!(results::Dict, glaciers; ddf=4.0, pf=1.2, T_melt=0.0, T_snow=1.0)
+    best_id = nothing
+    best_mb = -Inf
+    for g in glaciers
+        melt = _melt(g.T, ddf, T_melt)
+        acc = _accumulation(g.T, g.P, pf, T_snow)
+        mb = acc - melt
+        results[g.id] = mb
+        if mb > best_mb
+            best_mb = mb
+            best_id = g.id
+        end
+    end
+    return best_id
+end
+```
+
+Two helpers; `mb_report!` keeps its name, signature and control flow.
+
+- FP order: per-element `pf * P[i]` and `ddf * (t - T_melt)` added one at a time from `0.0`; factoring `pf` out or flipping `acc - melt` changes bits.
+- Short `P`: loop runs on `eachindex(T)` and `P[i]` is touched only inside the snow branch, so `BoundsError` fires at the identical index; `zip` would truncate silently.
+- Longer `P`: entries past `lastindex(T)` are ignored.
+- Writes: `results[g.id] = mb` runs for every glacier, in order, before best-tracking; a throwing glacier leaves no entry.
+- One pass over `glaciers`; it may be a once-only iterator.
+- Strict comparisons: first glacier kept on ties, `NaN` never wins, empty input returns `nothing`.

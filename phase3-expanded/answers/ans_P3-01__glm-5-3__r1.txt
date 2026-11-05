@@ -1,0 +1,56 @@
+## 1. First error
+
+The forward pass of `loss` works, but `Zygote.gradient` throws a mutation error: Zygote cannot differentiate `err[k] = ...` (setindex! on a `Vector`). Fixing this is not enough — see below.
+
+## 2. Other gradient defects
+
+- `ignore_derivatives` around `Hf` — silently wrong. Forward values are unchanged, but the a-dependence of V through the modeled thickness is cut from the gradient.
+- `S_obs = B .+ H0` — silently wrong. The slope factor `abs.(dS)^n` uses the observed thickness, so it carries no a-dependence. Use `B .+ H`.
+- `sqrt((V[k]-Vobs[k])^2)` — NaN. At an exact match `V[k] == Vobs[k]` (in particular ice-free faces where both are exactly 0), the sqrt pullback gives 0/(2·0) = NaN. The composed loss is smooth: sqrt(x²)² = x², so the sqrt is pure risk with no benefit. Drop it.
+- `abs.(dS)` at dS = 0 uses subgradient sign(0) = 0 — silently zero, but for n = 3 that is the correct derivative, so only a note.
+- If `length(Vobs) ≠ length(H0) - 1` you get a BoundsError — check face-vs-node layout.
+- The `!isnan` branch on data is gradient-safe (Vobs is not differentiated); a multiplicative mask would not be, since NaN·0 = NaN.
+
+## 3. Flat bed, d(log V_k)/da
+
+- Current code: **+1** (only `exp(a)` survives; `Hf` is severed, `dS` is constant).
+- Only `ignore_derivatives` removed: **1 − 4 = −3**.
+- Fully correct (S = B + H, so dS ∝ e^−a): **1 − 4 − 3 = −6**.
+
+The current expression's true sensitivity is −3, but AD reports +1 because `ignore_derivatives` severs it.
+
+## 4. Hand computation, a = 0
+
+Hf = 200, dS = 2. V(0) = 1e-10 · 200⁴ · 2³ = **1.28**. With the correct model, V(a) = 1.28·e^−6a, so dV/da = −7.68. L = (V − 1)².
+
+Correct: dL/da = 2·(0.28)·(−7.68) = **−4.3008**.
+
+Mutation-only fix: gradient sees only the `exp(a)` factor, dV/da = +1.28, so the code returns 2·0.28·1.28 = **+0.7168** — wrong sign and magnitude.
+
+## 5. Corrected code
+
+```julia
+using Zygote
+
+thickness(a, H0) = H0 .* exp(-a)
+
+function face_speed(H, S, a; Δx = 100.0, c = 1e-10, n = 3)
+    Hf = (H[1:end-1] .+ H[2:end]) ./ 2   # no ignore_derivatives: H reaches the gradient
+    dS = diff(S) ./ Δx
+    return c .* exp(a) .* Hf .^(n + 1) .* abs.(dS) .^ n
+end
+
+function loss(a, H0, B, Vobs)
+    H = thickness(a, H0)
+    S = B .+ H                          # modeled surface, not B .+ H0
+    V = face_speed(H, S, a)
+    valid = findall(o -> !isnan(o), Vobs) # mask by gathering on data, no mutation
+    err = V[valid] .- Vobs[valid]        # no sqrt: squared error is smooth at 0,
+                                         # so V = Vobs = 0 on ice-free faces is safe
+    return sum(abs2, err)
+end
+
+g = Zygote.gradient(a -> loss(a, H0, B, Vobs), 0.0)[1]
+```
+
+All three a-dependences (`exp(a)`, thickness, surface slope) now reach the gradient; NaN gaps are dropped by gather, not by multiplication.

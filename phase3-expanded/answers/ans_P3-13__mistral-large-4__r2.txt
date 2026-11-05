@@ -1,0 +1,5 @@
+```shell
+claude -p 'Read-only task. Repo: /home/user/julia/ODINN.jl, branch: fix/lossHV-docs. First confirm the branch by reading /home/user/julia/ODINN.jl/.git/HEAD; it must contain refs/heads/fix/lossHV-docs, otherwise stop and report. Then read all of src/losses/ and find the LossHV struct or function and every default value of its parameters. Read docs/src/losses.md and find the documented LossHV defaults. Compare them one by one. Report each mismatch as file:line plus the code value and the doc value. If nothing mismatches, say so explicitly. Constraints: edit nothing, run no Julia, no git, no shell; use only Read, Grep, Glob. Output format: plain text list of mismatches with file:line, or the explicit agreement statement.' --output-format text --allowedTools "Read Grep Glob"
+```
+
+The agent confirms the branch via `.git/HEAD` since it has no shell for git. It reads only `src/losses/` and `docs/src/losses.md`, edits nothing, and reports each default mismatch with `file:line`.

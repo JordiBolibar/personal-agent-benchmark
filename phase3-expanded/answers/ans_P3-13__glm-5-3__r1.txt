@@ -1,0 +1,6 @@
+```shell
+claude -p "Read-only review task. Repo: /home/user/julia/ODINN.jl, branch: fix/lossHV-docs. First confirm the branch by reading /home/user/julia/ODINN.jl/.git/HEAD; if it does not point to fix/lossHV-docs, stop and report the actual branch. Then Glob src/losses/ and Grep for LossHV to locate its defaults, and Read those files. Also Read docs/src/losses.md. Goal: report every mismatch between the LossHV defaults in code and the documented values, each as file:line with the code default and the doc value. Constraints: strictly read-only, never edit any file, never run Julia or any program. Output format: a list of mismatches with file:line, or if there is none, a single line saying no mismatch was found." --output-format text --allowedTools "Read Grep Glob"
+```
+
+The agent confirms the branch via `.git/HEAD`, since Read is its only way to verify it without a shell.
+No double quotes, backticks, or `$` appear inside the contract, so the outer quoting stays valid.

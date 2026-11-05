@@ -1,0 +1,33 @@
+````markdown
+## Choosing a loss
+
+A loss measures how well the simulated glacier fits the observations.
+
+- `LossH` uses ice thickness.
+- `LossV` uses surface velocity. `component = :abs` compares the speed. `component = :xy` compares the two components Vx and Vy.
+- `MultiLoss` combines several loss terms into one number. Give it a vector of losses and a vector of weights of the same length. It returns the weighted sum.
+
+Each term is the mean of `((pred - obs) / scale)^2`, over the cells with a valid observation.
+
+`scale` is the size of an error that matters. An error of `scale` contributes 1, a smaller error less, a larger error more. Its units match the data: meters for `LossH`, meters per year for `LossV`. Because each term is divided by its `scale`, terms have no units, so thickness and speed can be mixed in one `MultiLoss`. Use a smaller `scale` to make a term react more to errors.
+
+Missing data are cells where the observation is `NaN`. These cells are skipped, not read as zero. A term with no valid cell at all throws an `ArgumentError`.
+
+Example: thickness and speed with equal weights.
+
+```julia
+loss = MultiLoss([LossH(), LossV()], [1.0, 1.0])
+```
+
+```@docs
+LossH
+LossV
+MultiLoss
+```
+````
+
+Changes from old text:
+- `weight` does not exist. Weights live in `MultiLoss`; `LossV` takes `scale` and `component` instead.
+- `scale` is a normalizer, not a weight: the term is a squared error divided by `scale`. Default is 15 m for `LossH` and 5 m/a for `LossV`, not 1.
+- Missing data are skipped (`NaN` cells excluded), not treated as zero; a term with zero valid cells errors.
+- The term is a mean over valid cells, not a sum, so large glaciers do not count more.

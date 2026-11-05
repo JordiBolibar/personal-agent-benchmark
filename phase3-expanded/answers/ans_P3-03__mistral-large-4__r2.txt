@@ -1,0 +1,44 @@
+```julia
+function _melt(T, ddf, T_melt)
+    melt = 0.0
+    for t in T
+        if t > T_melt
+            melt += ddf * (t - T_melt)
+        end
+    end
+    return melt
+end
+
+function _accumulation(T, P, pf, T_snow)
+    acc = 0.0
+    for i in eachindex(T)
+        if T[i] < T_snow
+            acc += pf * P[i]
+        end
+    end
+    return acc
+end
+
+function mb_report!(results::Dict, glaciers; ddf=4.0, pf=1.2, T_melt=0.0, T_snow=1.0)
+    best_id = nothing
+    best_mb = -Inf
+    for g in glaciers
+        melt = _melt(g.T, ddf, T_melt)
+        acc = _accumulation(g.T, g.P, pf, T_snow)
+        mb = acc - melt
+        results[g.id] = mb
+        if mb > best_mb
+            best_mb = mb
+            best_id = g.id
+        end
+    end
+    return best_id
+end
+```
+
+- Summation order and operations (`ddf * (t - T_melt)`, `pf * P[i]`) must stay identical to keep results bit-for-bit.
+- `_accumulation` must keep indexing `P` by `eachindex(T)`, so a short `P` still throws `BoundsError` at the same point, before any write to `results`.
+- `results[g.id] = mb` must happen before the best-tracking update, preserving write order.
+- Strict `mb > best_mb` keeps the first glacier on ties; initial `best_mb = -Inf`, `best_id = nothing` unchanged.
+- `melt` must be fully computed before `acc`, so an error in the accumulation loop leaves `results` untouched for that glacier.
+- Keyword defaults and the return value (`best_id`, possibly `nothing` for empty input) must not change.

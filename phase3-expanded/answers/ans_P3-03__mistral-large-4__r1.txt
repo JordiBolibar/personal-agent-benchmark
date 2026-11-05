@@ -1,0 +1,44 @@
+```julia
+function _melt(T, ddf, T_melt)
+    melt = 0.0
+    for t in T
+        if t > T_melt
+            melt += ddf * (t - T_melt)
+        end
+    end
+    return melt
+end
+
+function _accumulation(T, P, pf, T_snow)
+    acc = 0.0
+    for i in eachindex(T)
+        if T[i] < T_snow
+            acc += pf * P[i]
+        end
+    end
+    return acc
+end
+
+function mb_report!(results::Dict, glaciers; ddf=4.0, pf=1.2, T_melt=0.0, T_snow=1.0)
+    best_id = nothing
+    best_mb = -Inf
+    for g in glaciers
+        melt = _melt(g.T, ddf, T_melt)
+        acc = _accumulation(g.T, g.P, pf, T_snow)
+        mb = acc - melt
+        results[g.id] = mb
+        if mb > best_mb
+            best_mb = mb
+            best_id = g.id
+        end
+    end
+    return best_id
+end
+```
+
+- Summation order in both helpers matches the original loops, so results stay bit-for-bit identical.
+- `eachindex(T)` with `P[i]` indexing keeps the same `BoundsError` when `P` is shorter than `T`, at the same index.
+- Extra elements in `P` (longer than `T`) are still ignored, as before.
+- `results[g.id] = mb` still happens once per glacier, in iteration order, before the best-tracker update.
+- Strict `>` comparison keeps the first glacier as winner on exact ties; `nothing` is still returned for an empty iterable.
+- Keyword defaults and the `mb_report!` signature are unchanged, so call sites behave identically.

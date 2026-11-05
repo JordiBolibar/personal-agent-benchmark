@@ -1,0 +1,76 @@
+```python
+import numpy as np
+import pandas as pd
+import pytest
+from mb_loader import MBDataLoader
+
+GLACIERS = [f"G{i:02d}" for i in range(8)]
+
+def make_df(glaciers=GLACIERS, rows_per=3, with_nan=False):
+    rows = [{"GLACIER": g, "ELEV": 1000.0 + i, "TEMP": -5.0 + i, "POINT_BALANCE": 1.0 + i}
+            for g in glaciers for i in range(rows_per)]
+    df = pd.DataFrame(rows)
+    if with_nan:
+        df.loc[0, "POINT_BALANCE"] = df.loc[1, "ELEV"] = np.nan
+    return df
+
+@pytest.mark.parametrize("nglac,frac,n_test", [(8, 0.25, 2), (3, 0.1, 1), (7, 0.9, 6)])
+def test_split_sizes_disjoint_complete(nglac, frac, n_test):
+    glaciers = [f"G{i:02d}" for i in range(nglac)]
+    df = make_df(glaciers)
+    train, test = MBDataLoader(df).split_by_glacier(frac)
+    assert test["GLACIER"].nunique() == n_test
+    assert train["GLACIER"].nunique() == nglac - n_test
+    assert not set(train["GLACIER"]) & set(test["GLACIER"])
+    assert set(train["GLACIER"]) | set(test["GLACIER"]) == set(glaciers)
+    assert len(train) + len(test) == len(df)
+
+def test_split_reproducible_and_seed_matters():
+    df = make_df([f"G{i:02d}" for i in range(20)])
+    _, a = MBDataLoader(df, 1).split_by_glacier(0.25)
+    _, b = MBDataLoader(df, 1).split_by_glacier(0.25)
+    _, c = MBDataLoader(df, 2).split_by_glacier(0.25)
+    assert set(a["GLACIER"]) == set(b["GLACIER"]) != set(c["GLACIER"])
+
+def test_split_returns_copies_original_untouched():
+    df = make_df()
+    train, _ = MBDataLoader(df).split_by_glacier(0.25)
+    train.iloc[0, train.columns.get_loc("ELEV")] = -999.0
+    assert df["ELEV"].min() > -999.0 and len(df) == len(GLACIERS) * 3
+
+@pytest.mark.parametrize("bad", [0.0, 1.0, -0.5, 1.5])
+def test_split_bad_fraction_raises(bad):
+    with pytest.raises(ValueError):
+        MBDataLoader(make_df()).split_by_glacier(bad)
+
+def test_split_needs_two_glaciers_raises():
+    with pytest.raises(ValueError):
+        MBDataLoader(make_df(["ONLY"])).split_by_glacier()
+
+def test_features_targets_values_dtypes_order():
+    df = make_df(GLACIERS[:2])
+    X, y = MBDataLoader(df).features_targets(df, ["TEMP", "ELEV"])
+    assert X.shape == (6, 2) and y.shape == (6,)
+    assert X.dtype == np.float64 and y.dtype == np.float64
+    assert np.allclose(X, df[["TEMP", "ELEV"]].to_numpy(float))
+    assert np.allclose(y, df["POINT_BALANCE"].to_numpy(float))
+
+def test_features_targets_custom_target():
+    df = make_df(GLACIERS[:1])
+    X, y = MBDataLoader(df).features_targets(df, ["ELEV"], target="TEMP")
+    assert X.shape == (3, 1) and np.allclose(y, df["TEMP"])
+
+def test_features_targets_drops_nan_rows():
+    df = make_df(GLACIERS[:1], with_nan=True)
+    X, y = MBDataLoader(df).features_targets(df, ["ELEV", "TEMP"])
+    assert len(X) == len(y) == 1
+    assert not np.isnan(X).any() and not np.isnan(y).any()
+
+@pytest.mark.parametrize("feats,target", [(["ELEV", "NOPE"], "POINT_BALANCE"), (["ELEV"], "NOPE")])
+def test_features_targets_missing_column_raises(feats, target):
+    df = make_df(GLACIERS[:1])
+    with pytest.raises(KeyError):
+        MBDataLoader(df).features_targets(df, feats, target=target)
+```
+
+The tests cover split sizes (including the `max(1, int(...))` floor and truncation), disjointness/completeness, seed reproducibility, copy safety, all `ValueError`/`KeyError` paths, NaN dropping, dtypes, shapes, and feature/target ordering. All data is built in-memory via `make_df`, so runs are fully deterministic.

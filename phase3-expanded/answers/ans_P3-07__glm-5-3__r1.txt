@@ -1,0 +1,15 @@
+1. **a-31:** broken session store. Its turn failed at 10:14:09 because `s-8842/messages.jsonl` ends mid-line at line 412 ("unexpected EOF" = a truncated final line, from an interrupted write). The agent went to `state=error`.
+**a-27:** expired login. The provider returned 401 `token_expired` at 10:22:45, so the agent paused with `reason=auth`. Store and daemon are fine.
+
+2. **a-31, in order:**
+   1. `check-session-store.sh a-31`
+   2. `rescue-session-context.sh a-31` — only if step 1 prints "truncated final line" (the log says it will).
+   3. `respawn-stuck-agent.sh a-31`
+
+   **a-27:** `paseo login` (user runs it). The agent continues on its next prompt; no respawn or rescue needed.
+
+3. **No.** Only 2 of 3 consecutive health checks failed; then `health ok latency=900ms` and the watchdog counter reset, so the daemon is healthy. Both problems are per-agent fixes, and a restart would kill every agent's turns.
+
+4. **Timeouts:** the daemon was slow but alive (5s checks failed, then it answered in 900ms). The exact cause is not in the log; it recovered by itself before reaching 3/3.
+   **Invalid file:** a write was cut off mid-record, so the file ends inside line 412 — an abrupt end of the session/process around 10:14.
+   **Lost messages:** at most 1 (the incomplete line 412); lines 1–411, i.e. 411 messages, are intact.

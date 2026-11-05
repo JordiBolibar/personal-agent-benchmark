@@ -1,0 +1,52 @@
+**1. First error**
+
+`err[k] = ...` is the first thing that fails: `setindex!` on a `Vector` has no Zygote rule, so the run aborts with the classic "Mutating arrays is not supported by this renderer" error. Everything before it is valid forward code. (If `H0`, `B`, `Vobs` were undefined, `UndefVarError` would come first; with the task-4 inputs they exist.)
+
+**2. Other defects that affect the gradient**
+
+a) Silently wrong — `ignore_derivatives` around `Hf` keeps the forward values but cuts ∂V/∂H to zero, so d(log V_k)/da loses its −(n+1) term.
+b) Silently wrong — `S_obs = B .+ H0` should be the modeled `S = B .+ H`. Loss values are wrong whenever H ≠ H0, and since `dS` is built from `H0`, the slope path carries no a-gradient at all.
+c) NaN — `sum(abs2, err)` equals `sum((V − Vobs)^2)`, so the `sqrt` changes no value; it only breaks the gradient. Its adjoint at a zero residual is 0·Inf = NaN. One exact match (an ice-free face with V = Vobs = 0 is enough) makes the whole dL/da NaN while the loss value stays correct.
+d) NaN in the fix — the `isnan` mask and its zero bias are right, but a mutation-free rewrite must not compute `V − Vobs` on gap faces and multiply by 0 afterwards: 0·NaN = NaN.
+
+Not defects: the `if` tests a non-traced constant; `abs` at `dS = 0` is fine (`sign(0.0) = 0.0`).
+
+**3. Flat bed, d(log V_k)/da** (per face with Hf, |dS| > 0)
+
+| path | result |
+|---|---|
+| current code (Hf ignored, dS from H0) | +1 |
+| only `ignore_derivatives` removed | 1 − (n+1) = −n = −3 |
+| correct model | 1 − (n+1) − n = −2n = −6 |
+
+**4. Numbers: H0 = [100, 300], B = 0, Vobs = [1.0]**
+
+Hf = 200, dS = 2, V = 1e-10·200⁴·|2|³ = 1.28. Fully correct: V(a) = 1.28·e^{−6a}, so dV/da = −7.68 and dL/da = 2(0.28)(−7.68) = **−4.3008** (L = 0.0784).
+With only the mutation removed: the forward V is the same at a = 0 (H = H0 there), but the only live a-path is `exp(a)`, so dV/da = +1.28 and g[1] = 2(0.28)(1.28) = **+0.7168** — wrong sign, exactly 1/6 of the true magnitude.
+
+**5. Corrected code**
+
+```julia
+using Zygote, ChainRulesCore
+
+thickness(a, H0) = H0 .* exp(-a)
+
+function face_speed(H, S, a; Δx = 100.0, c = 1e-10, n = 3)
+    Hf = (H[1:end-1] .+ H[2:end]) ./ 2      # traced: gradient flows through H
+    dS = diff(S) ./ Δx                      # slope of the modeled surface
+    return c .* exp(a) .* Hf .^ (n + 1) .* abs.(dS) .^ n
+end
+
+function loss(a, H0, B, Vobs)
+    H = thickness(a, H0)                    # modeled thickness
+    S = B .+ H                              # modeled surface, not B .+ H0
+    V = face_speed(H, S, a)
+    gap = isnan.(Vobs)                      # NaN gaps in the observations
+    vobs = ifelse.(gap, zero(eltype(Vobs)), Vobs)
+    err = (.!gap) .* (V .- vobs)            # 0 on gaps; no sqrt -> no 0*Inf NaN
+    return sum(abs2, err)                   # = sum (V - Vobs)^2, as intended
+end
+
+# H0 = [100.0, 300.0]; B = [0.0, 0.0]; Vobs = [1.0]
+g = Zygote.gradient(a -> loss(a, H0, B, Vobs), 0.0)   # g[1] = -4.3008
+```

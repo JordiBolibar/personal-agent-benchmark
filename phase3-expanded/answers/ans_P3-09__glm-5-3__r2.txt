@@ -1,0 +1,68 @@
+Defects, most severe first (line numbers from the original):
+
+1. Lines 10-12: the `/.dockerenv` check only prints an error, it does not exit. Inside the container the script continues and wipes `~/.vibe` there. It must `exit 1` before any other action.
+2. Line 6: `ls -t | head -1` picks the newest entry of the whole root, whatever it is. It can select a `.partial` snapshot or a stray file, and trusts mtime instead of the name format.
+3. Line 20 (and 6, 7, 14, 21, 22): paths are unquoted. With spaces, `rm -rf $DEST/*` splits into words and can delete outside `~/.vibe`; `find` and `rsync` run on wrong paths.
+4. Lines 19-21: the old config is deleted before `rsync` runs. If `rsync` fails, `set -e` aborts with the old config already gone.
+5. Lines 19-23: no failure handling at all. Any error after `docker stop` leaves `dev-box` stopped.
+6. Line 21: `$SRC` has no trailing slash, so rsync nests the snapshot as `~/.vibe/<name>/` instead of putting the contents directly into `~/.vibe`.
+7. Lines 15-17: the 10-file check only warns and the restore continues. Spec says stop, and before touching the container.
+8. Line 22: `for f in $(find ...)` splits names on whitespace, so `chmod +x` is applied to wrong, half names.
+9. Line 20: `$DEST/*` skips dotfiles, so old hidden files mix with the restored config.
+10. Line 5: no validation. A missing or non-directory argument, or a root with no finished snapshot, gives confusing errors or a garbage restore.
+
+The fix builds the new config in a staging dir next to `~/.vibe` and swaps it with `mv` (same filesystem, so atomic). The EXIT trap cleans the staging dir, puts the old dir back if the swap was interrupted, and restarts `dev-box`. Fixed-width names make lexical order equal time order, so the sorted glob's last entry is the newest. It needs only the listed tools plus coreutils `rm`, `mkdir` and `chmod`.
+
+```bash
+#!/usr/bin/env bash
+# restore-config.sh <snapshot-root>: restore the newest finished snapshot
+set -euo pipefail
+die() { echo "$0: $*" >&2; exit 1; }
+
+DEST=$HOME/.vibe
+STAGE=$HOME/.vibe.new.$$
+OLD=$HOME/.vibe.old.$$
+
+SNAP_ROOT=${1:-}
+[ -d "$SNAP_ROOT" ] || die "usage: $0 <snapshot-root>"
+[ ! -e /.dockerenv ] || die "run on host only"
+
+# newest finished snapshot: a directory named YYYY-MM-DD_HHMM (nothing else matches)
+shopt -s nullglob
+cands=()
+for d in "$SNAP_ROOT"/*/; do
+  b=${d%/}; b=${b##*/}
+  [[ $b =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{4}$ ]] && cands+=("$d")
+done
+[ ${#cands[@]} -gt 0 ] || die "no finished snapshot in $SNAP_ROOT"
+SRC=${cands[${#cands[@]} - 1]}   # glob order is sorted, so the last one is the newest
+
+# stop early when the snapshot is too small, before touching the live config
+count=0
+while IFS= read -r -d '' _; do
+  count=$((count + 1))
+  [ "$count" -ge 10 ] && break
+done < <(find "$SRC" -type f -print0)
+[ "$count" -lt 10 ] && die "snapshot too small: $count files"
+
+on_exit() {
+  rm -rf "$STAGE"
+  [ ! -e "$DEST" ] && [ -e "$OLD" ] && mv "$OLD" "$DEST" || true
+  docker start dev-box >/dev/null 2>&1 || true
+}
+trap on_exit EXIT
+
+# build the new config next to ~/.vibe, then swap it in while the container is down
+mkdir -p "$STAGE"
+rsync -a --delete "$SRC/" "$STAGE/"
+find "$STAGE" -type f -name '*.sh' -exec chmod +x {} +
+docker stop dev-box
+if [ -e "$DEST" ]; then mv "$DEST" "$OLD"; fi
+mv "$STAGE" "$DEST"
+docker start dev-box
+rm -rf "$OLD"
+trap - EXIT
+echo "restored ${SRC%/} into $DEST"
+```
+
+One caveat I could not validate by running: `docker start` on an already-running container is assumed to be a harmless no-op (it is on current Docker), which the trap relies on for the failure paths where the container was never stopped. If a `docker start` itself fails, no script can guarantee a running container.

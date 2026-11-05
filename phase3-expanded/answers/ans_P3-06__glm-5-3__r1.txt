@@ -1,0 +1,36 @@
+```python
+import calendar
+import datetime as dt
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
+
+
+def plot_dhdt(npz_path, out_png):
+    d = np.load(npz_path)
+    dhdt, x, y = d["dhdt"], d["x"], d["y"]
+    t = float(d["time"])
+    finite = dhdt[np.isfinite(dhdt)]
+    if finite.size == 0:
+        raise ValueError("dhdt contains no valid data")
+    vmax = float(np.abs(finite).max())
+    if vmax == 0:
+        vmax = 1.0
+    year = int(np.floor(t))
+    ndays = 366 if calendar.isleap(year) else 365
+    date = dt.date(year, 1, 1) + dt.timedelta(days=int(np.floor((t - year) * ndays)))
+    fig, ax = plt.subplots()
+    cmap = plt.get_cmap("RdBu").copy()  # negative red, positive blue
+    cmap.set_bad("0.7")  # no-data grey
+    mesh = ax.pcolormesh(x, y, np.ma.masked_invalid(dhdt), cmap=cmap,
+                         vmin=-vmax, vmax=vmax, shading="auto")
+    fig.colorbar(mesh, ax=ax, label="dH/dt (m/a)")
+    ax.set_aspect("equal")
+    ax.set_title(date.isoformat())
+    fig.savefig(out_png)
+    plt.close(fig)
+```
+
+2015-07-02

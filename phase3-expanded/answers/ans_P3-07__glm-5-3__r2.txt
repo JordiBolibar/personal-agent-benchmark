@@ -1,0 +1,13 @@
+1. **a-31:** Corrupted Unified session store — `messages.jsonl` truncated mid-write at line 412 ("unexpected EOF"), a store-level problem. **a-27:** No store damage; it hit a 401 `token_expired` and is paused on auth only.
+
+2. **a-31 (in order):**
+   1. `check-session-store.sh a-31`
+   2. Only if the check prints "truncated final line": `rescue-session-context.sh a-31`
+   3. `respawn-stuck-agent.sh a-31`
+   If the check prints anything else, do not run the rescue — stop and inspect.
+
+   **a-27:** the user runs `paseo login`. The agent stays paused and continues on its next prompt.
+
+3. **No.** Health failed only 2/3 times, then went healthy and the watchdog counter reset — no restart condition was met, and the daemon currently responds. Restarting also kills all agents' turns, which is forbidden for a two-agent problem.
+
+4. **Health timeouts:** the log shows no cause, only slow responses (timeout after 5s) that recovered by themselves — transient, no prior restart or crash recorded. **Invalid store:** the write of a message was cut off mid-line, so the file ends inside record 412. **Messages lost:** at least 1 — the truncated line 412; lines 1–411 are intact. Whether more messages were lost depends on what the check reports.

@@ -1,0 +1,55 @@
+1. **Lines 10–12 — container guard never stops.** It only echoes; with `set -e` an `if` body that succeeds doesn't abort, so the script also runs inside the container and would wipe the container's own `~/.vibe`. Needs `exit 1`.
+2. **Lines 15–17 — size guard never stops.** Same pattern: prints "snapshot too small" then continues and restores it anyway. Needs `exit 1`.
+3. **Line 20 — old config deleted before the new one exists.** `rm -rf $DEST/*` runs before `rsync`; if rsync or anything later fails, the old config is gone and the container is left stopped. Restore must be staged, then swapped, with rollback.
+4. **Line 6 — wrong snapshot selection.** `ls -t | head -1` picks the newest by mtime among *all* entries: `.partial` snapshots still being written, random files, and mtime order isn't snapshot-name order. Must select directories matching `YYYY-MM-DD_HHMM` and sort by name.
+5. **Line 21 — missing trailing slash on source.** `rsync -a $SRC $DEST/` copies the snapshot as `~/.vibe/YYYY-MM-DD_HHMM/` instead of its contents into `~/.vibe`. Needs `"$SRC/"`.
+6. **Lines 5–8, 14, 20–21 — unquoted variables.** Word splitting/globbing breaks on paths with spaces; unquoted `rm -rf $DEST/*` is outright dangerous.
+7. **Line 22 — `for f in $(find ...)`** splits on whitespace, so `.sh` files whose paths contain spaces get mangled and never chmodded. Use `find -exec chmod +x {} +`.
+8. **Line 20 — glob skips dotfiles**, so hidden files in `~/.vibe` survive the wipe (inconsistent restore).
+9. **No argument validation.** Missing `$1` makes `ls -t` run on the cwd; a non-directory root or "no snapshot found" (empty `LATEST`, so `SRC` = the root itself) is never checked.
+10. **Lines 19–23 — no rollback.** `set -e` exits on any failure after `docker stop`, leaving `dev-box` stopped and the config deleted. Needs a trap that restores the old config and runs `docker start dev-box`.
+
+```bash
+#!/usr/bin/env bash
+# restore-config.sh <snapshot-root>
+set -euo pipefail
+
+# host only: /.dockerenv exists only inside the container
+if [ -f /.dockerenv ]; then echo "run on the host only" >&2; exit 1; fi
+if [ $# -ne 1 ] || [ ! -d "$1" ]; then echo "usage: $0 <snapshot-root>" >&2; exit 1; fi
+
+SNAP_ROOT=$1
+DEST=$HOME/.vibe
+
+# newest finished snapshot: directory named YYYY-MM-DD_HHMM (never *.partial)
+LATEST=$(find "$SNAP_ROOT" -mindepth 1 -maxdepth 1 -type d \
+  -name '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9][0-9][0-9][0-9]' \
+  -printf '%f\n' | sort | tail -n 1)
+if [ -z "$LATEST" ]; then echo "no finished snapshot in $SNAP_ROOT" >&2; exit 1; fi
+SRC="$SNAP_ROOT/$LATEST"
+
+count=$(find "$SRC" -type f | wc -l)
+if [ "$count" -lt 10 ]; then echo "snapshot too small: $count files" >&2; exit 1; fi
+
+# stage the new config first, swap only when complete; roll back on any failure
+STAGE="$HOME/.vibe-restore.$$"
+mkdir "$STAGE"
+BACKUP=""; DONE=0
+rollback() {
+  rm -rf "$STAGE"
+  if [ "$DONE" -eq 0 ] && [ -n "$BACKUP" ] && [ ! -d "$DEST" ]; then mv "$BACKUP" "$DEST"; fi
+  docker start dev-box >/dev/null 2>&1 || true
+}
+trap rollback EXIT
+
+rsync -a --delete "$SRC/" "$STAGE/"
+find "$STAGE" -type f -name '*.sh' -exec chmod +x {} +
+
+docker stop dev-box
+if [ -d "$DEST" ]; then BACKUP="$HOME/.vibe-backup.$$"; mv "$DEST" "$BACKUP"; fi
+mv "$STAGE" "$DEST"
+docker start dev-box
+DONE=1
+trap - EXIT
+echo "restored $LATEST"
+```

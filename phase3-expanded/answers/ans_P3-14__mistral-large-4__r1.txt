@@ -1,0 +1,28 @@
+## Choosing a loss
+
+Losses compare model output with observations. There are three loss types:
+
+- `LossH` is the thickness loss. It compares modeled and observed ice thickness. `scale` is in meters (m) and defaults to 15.0.
+- `LossV` is the velocity loss. It compares modeled and observed velocity. `scale` is in meters per year (m/a) and defaults to 5.0. `component` is `:abs` for speed (default) or `:xy` for the Vx and Vy components.
+- `MultiLoss` is a weighted sum of loss terms. `losses` and `weights` must have the same length.
+
+Each term is the mean of `((pred - obs) / scale)^2`, taken over the cells where obs is not NaN. `scale` is the typical error size: an error equal to `scale` gives a term value of 1. Missing data (NaN) is skipped. If obs has no valid cell at all, the term throws an `ArgumentError`.
+
+Example: combine thickness and speed with equal weights.
+
+```julia
+loss = MultiLoss([LossH(), LossV()], [1.0, 1.0])
+```
+
+```julia
+@docs
+LossH
+LossV
+MultiLoss
+```
+
+Changes from old text:
+- `LossV` has no `weight` argument. Weights belong to `MultiLoss`.
+- The default `scale` for `LossV` is 5.0, not 1.
+- Missing data (NaN) is skipped, not treated as zero.
+- The loss is a mean of squared scaled errors, not a plain sum, so glacier size does not change the weighting.

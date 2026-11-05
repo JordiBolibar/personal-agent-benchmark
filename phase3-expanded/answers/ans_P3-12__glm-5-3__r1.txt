@@ -1,0 +1,23 @@
+**Findings (ranked)**
+
+1. **Critical** — `src/LossV.jl`, `loss_value`: `mask = .!isnan.(pred)` masks the wrong array. The rule says gaps are NaN in `obs`, so NaN in `obs` still poisons the loss (`sum(abs2, ...) → NaN`). The fix does not handle velocity gaps at all. Fix: `mask = .!isnan.(obs)` (or `.!isnan.(obs) .& .!isnan.(pred)`). The new test in `test/test_lossV.jl` also puts NaN in `pred`, so it validates the wrong behavior.
+
+2. **Critical** — `src/LossV.jl`, `loss_grad!`: no longer the exact gradient of `loss_value`. Missing the `/ sum(mask)` normalization, no masking (NaN entries leak into `g`, and `g` must be 0 at masked entries), and `l.scale^2` throws `MethodError` when `scale === nothing` (the new default). Fix: compute `s` and `mask` identically to `loss_value`, then `g[mask] .= 2 .* (pred[mask] .- obs[mask]) ./ (s^2 * sum(mask))`, zero elsewhere.
+
+3. **Critical** — `test/test_lossV.jl`: `fd_check(...; atol = 1e-6)` loosened to `1.0`. This hides the adjoint error in finding 2 instead of catching it. Restore `1e-6`.
+
+4. **Critical** — `Project.toml`: `julia = "1.12"` violates the 1.11-only rule. Revert to `"1.11"`.
+
+5. **Major** — `Manifest.toml` is modified in the commit; project rule says it is never committed. Drop this file from the commit and untrack it.
+
+6. **Major** — `loss_value` silently changes semantics from sum to mean (`/ sum(mask)`), rescaling the loss and all gradient magnitudes (affects training results), while the commit message only mentions gaps. Revert or document, and update the adjoint consistently.
+
+7. **Major** — `s = mean(obs)` with the default `scale = nothing`: NaN gaps in `obs` make the mean NaN, so the loss is NaN again. Drop the `nothing` default or use a NaN-safe, data-independent scale.
+
+8. **Minor** — `scale::Union{T,Nothing}` plus hardcoded `LossV{Float64}`: type-unstable field; keep `scale::T`.
+
+9. **Minor** — all-NaN input gives `sum(mask) = 0` → `0/0 = NaN`; guard or document.
+
+Fine as changed: the first test's expected value `0.5` matches the new arithmetic; adding a gap test is the right direction (fix its NaN side per finding 1).
+
+VERDICT: request changes

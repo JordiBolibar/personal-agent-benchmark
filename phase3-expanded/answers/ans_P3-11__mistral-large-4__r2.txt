@@ -1,0 +1,9 @@
+A. `xerj search "SIA2D thickness at cell faces" --prefix huginn-src`
+
+B. Open result 2 first: `src/losses/masks.jl` (the `apply_loss_mask(V, H; Hmin = 5.0)` definition). Before editing, open the file and confirm the index is not stale: the `Hmin = 5.0` default is really there, and check the caller in `LossH.jl:40` still routes through it. Result 1 is only a NOTE comment saying the mask moved — a comment is not the threshold; the actual default lives in `masks.jl`.
+
+C. `grep -n -i "threshold" /home/user/workstation/scripts/paseo-watchdog.sh` (scripts are outside the prefixes, so grep, not xerj).
+
+D. `xerj def apply_loss_mask` is wrong because `xerj def` gives wrong answers on Julia symbols. `xerj search "apply_loss_mask"` is wrong because it is unscoped — exactly one prefix is required. Correct: `xerj search "apply_loss_mask" --prefix odinn-src`.
+
+E. `grep -n "Hmin" /home/user/worktrees/feature-x/src/losses/new_mask.jl` (brand-new file in a worktree, outside the prefixes, so grep).

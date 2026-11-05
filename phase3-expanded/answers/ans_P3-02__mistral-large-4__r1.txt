@@ -1,0 +1,15 @@
+```julia
+UDEparameters(
+    target = SIA2D_D_hybrid(),
+    grad = ContinuousAdjoint(; VJP = EnzymeVJP()),
+    empirical_loss_function = MultiLoss(
+        [LossH(; scale = 15.0), LossV(; scale = 5.0, component = :abs)],
+        [1.0, 1.0],
+    ),
+    tstops = [2005.0, 2010.0, 2015.0],
+)
+```
+
+2. `DiscreteVJP()` is not in the support table for `SIA2D_D_hybrid()` (only `EnzymeVJP()` is), and `SciMLSensitivityAdjoint()` does not support `LossV`, which we need for the speed observations.
+3. The excerpt does not define a default learning rate; it is not a `UDEparameters` argument, so the given API does not specify one.
+4. The excerpt documents no checkpoint or resume mechanism, so according to this API, no — `train_UDE!` always runs the training from the start.

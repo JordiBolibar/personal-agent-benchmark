@@ -1,0 +1,64 @@
+```json
+{
+  "id": "crew-peek",
+  "name": "Crew Peek",
+  "version": "0.1.0",
+  "client": "dist/client.js",
+  "server": "dist/server.js"
+}
+```
+
+```ts
+import { defineServerPlugin } from "@getpaseo/plugin";
+
+defineServerPlugin(async (ctx) => {
+  ctx.rpc.handle("counts", async () => {
+    const agents = await ctx.agents.list();
+    const counts = { running: 0, idle: 0, error: 0 };
+    for (const a of agents) counts[a.status] += 1;
+    return counts;
+  });
+});
+```
+
+```ts
+import { defineClientPlugin } from "@getpaseo/plugin";
+
+defineClientPlugin((ctx) => {
+  let el: HTMLElement | null = null;
+  let text = "";
+
+  const paint = (t: string) => {
+    text = t;
+    if (el) el.textContent = t;
+  };
+
+  async function refresh() {
+    try {
+      const c = await ctx.rpc.call<{ running: number; idle: number; error: number }>("counts");
+      paint(`running: ${c.running}  idle: ${c.idle}  error: ${c.error}`);
+    } catch {
+      paint("unavailable");
+    }
+  }
+
+  const timer = setInterval(refresh, 5000);
+  ctx.onDispose(() => clearInterval(timer));
+  void refresh();
+
+  ctx.panels.register({
+    id: "crew",
+    title: "Crew",
+    render(): HTMLElement {
+      el ??= document.createElement("div");
+      el.textContent = text;
+      return el;
+    },
+  });
+});
+```
+
+Notes:
+- The interval is created once in setup (never in `render`), and `onDispose` clears it on reload, so only one interval ever exists for the plugin.
+- A server handler error rejects the RPC call, the catch paints `unavailable`, and the next successful refresh overwrites it; before the first reply the panel is blank.
+- Both entries just call their `define*` function at load; `counts` needs no prefix because RPC names are auto-namespaced.

@@ -1,0 +1,32 @@
+## Choosing a loss
+
+Three loss types are available: `LossH`, `LossV`, and `MultiLoss`.
+
+`LossH` is the thickness loss. It compares modeled ice thickness with observed thickness. Its `scale` is in meters and defaults to 15.0.
+
+`LossV` is the velocity loss. It compares modeled ice velocity with observations. Its `scale` is in m/a and defaults to 5.0. The keyword `component` is `:abs` for speed (the default) or `:xy` for the Vx and Vy components.
+
+`MultiLoss` combines several losses into one. It takes a vector of losses and a vector of weights. Both vectors must have the same length. The result is the weighted sum of the terms.
+
+`scale` sets the error size you expect, in the unit of the data. It divides the error before squaring, so the loss has no unit.
+
+Missing data: each term is the mean of `((pred - obs) / scale)^2` over the cells where the observation is not `NaN`. Missing cells are skipped, not treated as zero. If an observation has no valid cell at all, the term throws an `ArgumentError`.
+
+Combine thickness and speed with equal weights:
+
+```julia
+loss = MultiLoss([LossH(), LossV()], [1.0, 1.0])
+```
+
+```markdown
+@docs
+LossH
+LossV
+MultiLoss
+```
+
+Changes from old text:
+- `LossV` has no `weight` anymore; weights belong to `MultiLoss`.
+- `scale` defaults to 5.0 m/a for `LossV` (and 15.0 m for `LossH`), not 1.
+- Missing data is skipped (NaN cells are excluded) and an all-NaN observation throws `ArgumentError`; it is not treated as zero.
+- The loss is a mean of squared scaled errors, not a plain sum, so large glaciers do not count more.

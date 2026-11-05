@@ -1,0 +1,19 @@
+```julia
+UDEparameters(;
+    target = SIA2D_D_hybrid(),
+    grad   = ContinuousAdjoint(; VJP = EnzymeVJP()),
+    empirical_loss_function = MultiLoss(
+        [LossH(; scale = 15.0), LossV(; scale = 5.0, component = :abs)],
+        [1.0, 1.0],
+    ),
+    tstops = [2005.0, 2010.0, 2015.0],
+)
+```
+
+1. (Code above. `:abs` = speed magnitude, scales are the 1-sigma errors, 2000.0 is the initial state so it is not in `tstops`.)
+
+2. `DiscreteVJP()` is not an allowed VJP for `SIA2D_D_hybrid()` — the support table allows only `EnzymeVJP()`. `SciMLSensitivityAdjoint()` ignores the target and does not support `LossV`, but the speed observations require the speed term.
+
+3. The excerpt does not state a default learning rate. It only says `train_UDE!(inversion)` runs the training, so I cannot answer this from the given API.
+
+4. The excerpt says nothing about checkpoints or saved state, so I cannot confirm resume support; only the plain `train_UDE!(inversion)` call is documented.

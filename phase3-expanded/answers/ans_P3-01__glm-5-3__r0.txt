@@ -1,0 +1,51 @@
+**1. First error**
+
+Zygote throws `Mutating arrays is not supported — called setindex!(::Vector{Float64}, ...)`, from `err[k] = sqrt(...)`, as soon as `gradient` is called. (Run verbatim with `H0`/`B`/`Vobs` undefined, an `UndefVarError` comes even earlier; with inputs defined, the mutation error is the first one.)
+
+**2. Other gradient defects**
+
+- `ignore_derivatives` on `Hf`: silently wrong. It cuts the chain a → H → Hf, so the thickness contribution to dL/da is zero. No error, no NaN.
+- `S_obs = B .+ H0`: silently wrong. The modeled surface must be `B .+ H`. With `H0`, the slope `dS` has no a-dependence, so that gradient term vanishes, and the forward value is wrong for a ≠ 0.
+- `sqrt((V - Vobs)^2)`: NaN. Where V = Vobs = 0 exactly (ice-free faces), `sqrt'(0) = Inf` meets the upstream factor `2(V - Vobs) = 0`, giving 0·Inf = NaN, which poisons the whole gradient. Where V ≠ Vobs it acts like `abs` and works.
+- Not defects: `abs.(dS).^n` at dS = 0 is safe (pullback ∝ |dS|^(n-1) = 0 for n = 3); the `isnan` branch on constant data is fine once mutation is gone.
+
+**3. Flat bed (B = 0): d(log V_k)/da**
+
+- Current code path: +1. Only the explicit `exp(a)` reaches the gradient.
+- Only `ignore_derivatives` removed: 1 + (n+1)·(-1) = -3. The H branch connects (H ∝ e^-a); the slope still does not.
+- Fully correct: 1 - (n+1) - n = -6. On a flat bed S = B + H ∝ e^-a, so Hf and |dS| each add a -1.
+
+**4. Hand computation at a = 0, H0 = [100, 300], B = [0, 0], Vobs = [1]**
+
+Hf = 200, dS/Δx = 2, V = 1e-10 · 200^4 · 2^3 = 1.28, e = 0.28, L = 0.0784.
+
+- Correct: dV/da = V·(-6) = -7.68, so dL/da = 2e·dV/da = 2·0.28·(-7.68) = -4.3008.
+- Mutation removed only: the loss value is identical here (H = H0 at a = 0), but the only live path to `a` is `exp(a)`: dV/da = +1.28, dL/da = 2·0.28·1.28 = +0.7168. Wrong magnitude and wrong sign.
+
+**5. Corrected code**
+
+```julia
+using Zygote
+
+thickness(a, H0) = H0 .* exp(-a)
+
+function face_speed(H, S, a; Δx = 100.0, c = 1e-10, n = 3)
+    Hf = (H[1:end-1] .+ H[2:end]) ./ 2     # differentiable face thickness
+    dS = diff(S) ./ Δx
+    return c .* exp(a) .* Hf .^ (n + 1) .* abs.(dS) .^ n
+end
+
+function loss(a, H0, B, Vobs)
+    H = thickness(a, H0)
+    S = B .+ H                             # modeled surface: bed + modeled H
+    V = face_speed(H, S, a)
+    # Branch on Vobs (constant data). Never mask by multiplication:
+    # NaN * false = NaN in IEEE arithmetic and would poison the loss.
+    err = [isnan(vo) ? 0.0 : v - vo for (v, vo) in zip(V, Vobs)]
+    return sum(abs2, err)                  # Σ (V_k - Vobs_k)^2, safe at V = Vobs = 0
+end
+
+g = Zygote.gradient(a -> loss(a, H0, B, Vobs), 0.0)
+```
+
+`sum(abs2, err)` gives the same loss values as the original `sqrt` + `abs2` version, since |e|² = e², but without the NaN at e = 0. `ChainRulesCore` is no longer needed. Assumes `length(Vobs) == length(H0) - 1`; `zip` would otherwise truncate silently.

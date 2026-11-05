@@ -1,0 +1,81 @@
+```json
+{
+  "id": "crew-peek",
+  "name": "Crew Peek",
+  "version": "0.1.0",
+  "client": "dist/client.js",
+  "server": "dist/server.js"
+}
+```
+
+```ts
+// @getpaseo/plugin
+import { defineServerPlugin } from "@getpaseo/plugin";
+
+defineServerPlugin(async (ctx) => {
+  ctx.rpc.handle("counts", async () => {
+    const agents = await ctx.agents.list();
+    return {
+      running: agents.filter((a) => a.status === "running").length,
+      idle: agents.filter((a) => a.status === "idle").length,
+      error: agents.filter((a) => a.status === "error").length,
+    };
+  });
+  ctx.log("crew-peek server ready");
+});
+```
+
+```ts
+// @getpaseo/plugin
+import { defineClientPlugin } from "@getpaseo/plugin";
+
+interface Counts {
+  running: number;
+  idle: number;
+  error: number;
+}
+
+defineClientPlugin((ctx) => {
+  let text = "unavailable";
+  let line: HTMLElement | null = null;
+  let timer: ReturnType<typeof setInterval> | null = null;
+
+  function setText(t: string) {
+    text = t;
+    if (line) line.textContent = t;
+  }
+
+  async function refresh() {
+    try {
+      const c = await ctx.rpc.call<Counts>("counts");
+      setText(`running: ${c.running}  idle: ${c.idle}  error: ${c.error}`);
+    } catch {
+      setText("unavailable");
+    }
+  }
+
+  ctx.panels.register({
+    id: "crew",
+    title: "Crew",
+    render() {
+      const el = document.createElement("div");
+      el.textContent = text;
+      line = el;
+      return el;
+    },
+  });
+
+  refresh();
+  if (timer === null) timer = setInterval(refresh, 5000);
+
+  ctx.onDispose(() => {
+    if (timer !== null) clearInterval(timer);
+    timer = null;
+  });
+});
+```
+
+Notes:
+- The interval is created once in setup and cleared in `onDispose`, so a reload never leaks a timer, and `render()` only rebuilds the element from the cached text.
+- A failed RPC rejects the promise, so the catch shows `unavailable` and the next successful tick recovers on its own.
+- `counts` needs no plugin prefix; the daemon namespaces RPC methods per plugin.

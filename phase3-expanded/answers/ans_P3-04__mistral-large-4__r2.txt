@@ -1,0 +1,21 @@
+```julia
+using Test
+
+@testset "ela" begin
+    @test_throws ArgumentError ela([1.0, 2.0], [1.0])
+    @test_throws ArgumentError ela([1.0], [1.0])
+    @test_throws ArgumentError ela([2.0, 2.0], [-1.0, 1.0])
+    @test_throws ArgumentError ela([2.0, 1.0], [-1.0, 1.0])
+    @test ela([1, 2], [0, -1]) === 1.0
+    @test ela([0.0, 2.0, 4.0], [-1.0, 0.0, 1.0]) === 2.0
+    @test ela([1.0, 3.0], [1.0, 0.0]) === 3.0
+    @test ela([0.0, 2.0, 4.0], [0.0, 0.0, -1.0]) === 0.0
+    @test ela([1.0, 3.0], [-1.0, 3.0]) === 1.5
+    @test ela([0.0, 8.0], [4.0, -4.0]) === 4.0
+    @test ela([0.0, 2.0, 4.0, 6.0], [-1.0, 1.0, -1.0, 1.0]) === 1.0
+    @test ela([0.0, 1.0], [1.0, 2.0]) === nothing
+    @test ela([0.0, 1.0], [-2.0, -1.0]) === nothing
+end
+```
+
+Catches wrong argument checks, wrong scan order, missed endpoint zeros, wrong interpolation, missing `float`, and wrong `nothing` result.

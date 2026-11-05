@@ -1,0 +1,17 @@
+task	family	difficulty	trap	est_s	prompt_words	sha16
+P3-01	code	hard	no	270	307	039355f18b73961f
+P3-02	code	medium	yes	180	251	8b9476e52e9f350d
+P3-03	code	medium	no	180	189	69fb3b4e57ab5239
+P3-04	code	medium	no	180	232	54afb043613670c4
+P3-05	code	medium	no	180	210	3a43a3b4c467a636
+P3-06	code	easy	no	60	203	4ad6b0af29feb2f0
+P3-07	ops	medium	yes	180	273	19979065facda278
+P3-08	ops	medium	no	180	294	5323fa3e87865d37
+P3-09	ops	hard	no	270	266	2e9e7427e1c44c35
+P3-10	ops	easy	no	60	189	743ea92aae8555dd
+P3-11	workflow	medium	no	180	259	d8bc1e9e032a98da
+P3-12	workflow	hard	no	270	293	0e782107e913d4fa
+P3-13	workflow	easy	no	60	160	792b753d2d2e0fcf
+P3-14	workflow	medium	no	180	271	e1fc1869832c97b0
+P3-15	science	hard	no	270	247	f2357df62a4a02ae
+P3-16	science	easy	no	60	237	7590b1541725a335

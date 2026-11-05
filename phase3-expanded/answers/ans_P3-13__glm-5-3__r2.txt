@@ -1,0 +1,6 @@
+```shell
+claude -p "Repo /home/user/julia/ODINN.jl, branch fix/lossHV-docs. First read the file .git/HEAD and confirm the branch is fix/lossHV-docs; if not, say so and stop. Then read all files under src/losses/ and the file docs/src/losses.md. Goal: check whether the defaults of LossHV in the code agree with the docs. Report each mismatch as file:line plus what differs. If there is no mismatch, say so. Constraints: read-only; do not edit anything; do not run Julia or any program; use only Read, Grep, Glob; give a short verdict first." --output-format text --allowedTools "Read Grep Glob"
+```
+
+The branch check uses `.git/HEAD`, since the agent has no shell and cannot run git.
+The contract contains no double quotes, dollars or backticks, so the outer quoting is valid.

@@ -1,0 +1,9 @@
+**A.** `xerj search "thickness at cell faces" --prefix huginn-src`
+
+**B.** Open result 2 first: `src/losses/masks.jl:12` — the default `Hmin = 5.0` lives in the function signature there. Before editing: open the file (the index can be stale) and confirm the current signature; also check callers, since result 3 passes `Hmin = l.Hmin`, meaning LossH overrides the default, so decide whether the loss-struct default needs changing too. Result 1 is only a comment pointing to `apply_loss_mask`; it defines nothing.
+
+**C.** `grep -n -iE "threshold|restart" /home/user/workstation/scripts/paseo-watchdog.sh`
+
+**D.** `xerj def apply_loss_mask` — `xerj def` is forbidden, it gives wrong answers on Julia symbols. `xerj search "apply_loss_mask"` — missing a prefix; unscoped searches are never allowed. Correct: `xerj search "apply_loss_mask" --prefix odinn-src`
+
+**E.** `grep -n "Hmin" /home/user/worktrees/feature-x/src/losses/new_mask.jl` — brand-new file, not in the index, so not `xerj search`.

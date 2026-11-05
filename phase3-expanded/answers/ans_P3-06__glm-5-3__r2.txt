@@ -1,0 +1,41 @@
+```python
+import numpy as np
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from datetime import date, timedelta
+
+
+def plot_dhdt(npz_path, out_png):
+    with np.load(npz_path) as data:
+        dhdt = np.asarray(data["dhdt"], dtype=float)
+        x = np.asarray(data["x"], dtype=float).ravel()
+        y = np.asarray(data["y"], dtype=float).ravel()
+        t = float(data["time"])
+
+    if np.isnan(dhdt).all():
+        raise ValueError("dhdt contains no data (all NaN)")
+
+    year = int(np.floor(t))
+    n_days = (date(year + 1, 1, 1) - date(year, 1, 1)).days
+    d = date(year, 1, 1) + timedelta(days=int(np.floor((t - year) * n_days)))
+
+    finite = dhdt[np.isfinite(dhdt)]
+    vmax = float(np.max(np.abs(finite)))
+    if vmax == 0.0:
+        vmax = 1.0
+
+    cmap = plt.cm.RdBu.copy()
+    cmap.set_bad("grey")
+    fig, ax = plt.subplots()
+    mesh = ax.pcolormesh(x, y, np.ma.masked_invalid(dhdt), cmap=cmap,
+                         vmin=-vmax, vmax=vmax, shading="auto")
+    ax.set_aspect("equal")
+    ax.set_title(d.isoformat())
+    cbar = fig.colorbar(mesh, ax=ax)
+    cbar.set_label("dH/dt (m/a)")
+    fig.savefig(out_png, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+```
+
+2015-07-02

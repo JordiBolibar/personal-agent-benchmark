@@ -1,0 +1,25 @@
+```julia
+using Test
+
+@testset "ela" begin
+    @test ela([0, 8], [-1, 7]) === 1.0
+    @test ela([10, 26], [-2, 6]) === 14.0
+    @test ela([100, 200, 300], [-2, 2, 4]) === 150.0
+    @test ela([5, 9], [0, 1]) === 5.0
+    @test ela([1, 2], [0, 0]) === 1.0
+    @test ela([5, 9, 12], [1, 0, -1]) === 9.0
+    @test ela([5, 9], [1, 0]) === 9.0
+    @test ela([0, 4, 16], [1, 2, -6]) === 7.0
+    @test ela([1, 2, 3], [1, 2, 3]) === nothing
+    @test ela([1, 2, 3], [-1, -2, -3]) === nothing
+    @test_throws ArgumentError ela([1, 2], [1])
+    @test_throws ArgumentError ela([1], [1])
+    @test_throws ArgumentError ela([2, 1], [1, 2])
+    @test_throws ArgumentError ela([1, 1], [1, 2])
+end
+```
+
+Catches wrong interpolation math, wrong zero chosen, missed last segment, and no-zero cases.
+Catches exact-zero handling at first, middle, last, and repeated zeros.
+Catches missing or wrong ArgumentError validation for length, minimum size, and strictly increasing z.
+Catches type/value changes via `===` against exact Float64 results and `nothing`.

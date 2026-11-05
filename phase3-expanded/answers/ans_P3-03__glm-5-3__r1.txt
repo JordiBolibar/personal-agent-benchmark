@@ -1,0 +1,46 @@
+```julia
+# Melt energy sum: ddf * (t - T_melt) for each temperature above T_melt.
+function _melt(T, ddf, T_melt)
+    melt = 0.0
+    for t in T
+        if t > T_melt
+            melt += ddf * (t - T_melt)
+        end
+    end
+    return melt
+end
+
+# Accumulation sum: pf * P[i] at each index where T[i] is below T_snow.
+function _accumulation(T, P, pf, T_snow)
+    acc = 0.0
+    for i in eachindex(T)
+        if T[i] < T_snow
+            acc += pf * P[i]
+        end
+    end
+    return acc
+end
+
+function mb_report!(results::Dict, glaciers; ddf=4.0, pf=1.2, T_melt=0.0, T_snow=1.0)
+    best_id = nothing
+    best_mb = -Inf
+    for g in glaciers
+        melt = _melt(g.T, ddf, T_melt)
+        acc = _accumulation(g.T, g.P, pf, T_snow)
+        mb = acc - melt
+        results[g.id] = mb
+        if mb > best_mb
+            best_mb = mb
+            best_id = g.id
+        end
+    end
+    return best_id
+end
+```
+
+- Length mismatch: `_accumulation` still indexes `P[i]` only when `T[i] < T_snow`, over `eachindex(T)`. A `zip` or `eachindex(P)` version changes when `BoundsError` is thrown and which `P` tail is dropped.
+- Bit-exact sums: both helpers start at `0.0` and add terms in the original order; `sum`, `mapreduce`, or fused loops would reorder the additions and change bits.
+- `mb` stays `acc - melt`, computed from two separate sums, never one fused pass.
+- `results[g.id] = mb` still happens per glacier before the best test, so a `BoundsError` on a later glacier leaves earlier entries written.
+- Strict `>` against `-Inf`: ties keep the first glacier, and `NaN` mass balances never win.
+- Untyped helper arguments keep any iterable `T` and vector-like `P` working, as before.

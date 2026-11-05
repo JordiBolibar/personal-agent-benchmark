@@ -1,0 +1,69 @@
+```json
+{
+  "id": "crew-peek",
+  "name": "Crew Peek",
+  "version": "0.1.0",
+  "client": "dist/client.js",
+  "server": "dist/server.js"
+}
+```
+
+```ts
+import { defineServerPlugin } from "@getpaseo/plugin";
+
+defineServerPlugin((ctx) => {
+  ctx.rpc.handle("counts", async () => {
+    const agents = await ctx.agents.list();
+    const n = (status: "running" | "idle" | "error") =>
+      agents.filter((a) => a.status === status).length;
+    return { running: n("running"), idle: n("idle"), error: n("error") };
+  });
+});
+```
+
+```ts
+import { defineClientPlugin } from "@getpaseo/plugin";
+
+interface Counts { running: number; idle: number; error: number; }
+
+defineClientPlugin((ctx) => {
+  let el: HTMLElement | null = null;
+  let disposed = false;
+
+  async function refresh() {
+    if (disposed || !el) return;
+    let text: string;
+    try {
+      const c = await ctx.rpc.call<Counts>("counts");
+      text = `running: ${c.running}  idle: ${c.idle}  error: ${c.error}`;
+    } catch {
+      text = "unavailable";
+    }
+    if (disposed || !el) return;
+    el.textContent = text;
+  }
+
+  const timer: ReturnType<typeof setInterval> = setInterval(refresh, 5000);
+
+  ctx.panels.register({
+    id: "crew-peek",
+    title: "Crew",
+    render() {
+      const div = document.createElement("div");
+      el = div;
+      refresh();
+      return div;
+    },
+  });
+
+  ctx.onDispose(() => {
+    disposed = true;
+    clearInterval(timer);
+    el = null;
+  });
+});
+```
+
+- The one `setInterval` is made in setup and cleared in `onDispose`; `render()` only builds an element and starts no timer.
+- A failed `counts` call shows `unavailable`; the next 5-second tick overwrites it, so it recovers on its own.
+- `refresh()` always writes to the newest rendered element, so repeated `render()` calls stay correct.

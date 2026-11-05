@@ -1,0 +1,7 @@
+1. **a-31:** its unified session store is invalid because `messages.jsonl` line 412 ends mid-line (`unexpected EOF`), so the agent is in `state=error`. **a-27:** the provider returned `401 token_expired`, so it is only `paused reason=auth`, not crashed.
+
+2. **a-31:** run `check-session-store.sh a-31`; only if it prints `truncated final line`, run `rescue-session-context.sh a-31`; then run `respawn-stuck-agent.sh a-31`. **a-27:** run `paseo login` to refresh the token, then give a-27 its next prompt; it continues. Do not respawn a-27 or restart the daemon.
+
+3. **No.** The watchdog had only 2 consecutive health failures, then `health ok` at 10:31:20 reset the counter; the restart threshold is 3 in a row, and agent errors never justify a daemon restart.
+
+4. The 10:30 timeouts were two transient 5s watchdog health-check timeouts, cleared by the 900ms OK check. `messages.jsonl` became invalid because the final line, line 412, was truncated mid-write. The known lost/incomplete message is the final one, message 412; the log shows no earlier lines failing.

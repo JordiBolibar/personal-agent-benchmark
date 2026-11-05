@@ -1,0 +1,65 @@
+```json
+{
+  "id": "crew-peek",
+  "name": "Crew Peek",
+  "version": "0.1.0",
+  "client": "dist/client.js",
+  "server": "dist/server.js"
+}
+```
+
+```ts
+// @getpaseo/plugin
+import { defineServerPlugin } from "@getpaseo/plugin";
+
+type Counts = { running: number; idle: number; error: number };
+
+defineServerPlugin(async (ctx) => {
+  ctx.rpc.handle<Counts>("counts", async () => {
+    const agents = await ctx.agents.list();
+    const c: Counts = { running: 0, idle: 0, error: 0 };
+    for (const a of agents) c[a.status]++;
+    return c;
+  });
+  ctx.log("crew-peek ready");
+});
+```
+
+```ts
+// @getpaseo/plugin
+import { defineClientPlugin } from "@getpaseo/plugin";
+
+type Counts = { running: number; idle: number; error: number };
+
+defineClientPlugin((ctx) => {
+  let el: HTMLElement | null = null;
+
+  async function refresh(): Promise<void> {
+    let text: string;
+    try {
+      const c = await ctx.rpc.call<Counts>("counts");
+      text = `running: ${c.running}  idle: ${c.idle}  error: ${c.error}`;
+    } catch {
+      text = "unavailable";
+    }
+    if (el) el.textContent = text;
+  }
+
+  ctx.panels.register({
+    id: "crew",
+    title: "Crew",
+    render() {
+      el = document.createElement("div");
+      return el;
+    },
+  });
+
+  void refresh();
+  const timer = setInterval(refresh, 5000);
+  ctx.onDispose(() => clearInterval(timer));
+});
+```
+
+- The single interval is created once in setup and cleared in `onDispose`, so a plugin reload never leaks a timer; `render()` only builds the element and starts nothing.
+- The interval writes into whichever element `render()` last returned, so repeated `render()` calls stay cheap and always show the latest text.
+- RPC names are auto-namespaced per plugin, so both sides use the bare method name `counts`; a failed call shows `unavailable` and the next successful tick restores the counts on its own.

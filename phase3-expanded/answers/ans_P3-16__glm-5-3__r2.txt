@@ -1,0 +1,8 @@
+1. x_ELA = **3000 m** (0.1x = 3000 − 2700)
+2. **L = 6000 m** (q = 0.007(300x − 0.05x²) = 0 ⇒ L = 300/0.05)
+3. **b(L) = −2.1 m a⁻¹** ice (β(z−ELA) = 0.007(2400 − 2700))
+4. **q_max = 3150 m² a⁻¹**, at x = x_ELA, since dq/dx = b = 0 there (q = 0.007 × 450,000)
+5. ū = q_max/H = 3150/150 = **21 m a⁻¹**; u_s = (5/4)ū = **26.25 m a⁻¹**
+6. τ = ρgHα = 900 × 9.81 × 150 × 0.1 = **132 kPa** (132,435 Pa)
+7. ū = (2A/(n+2))τⁿH ⇒ A = 5ū/(2τ³H) = 105/(2 × 2.323×10¹⁵ × 150) = **1.51 × 10⁻¹⁶ Pa⁻³ a⁻¹**
+8. A/A0 = 1.51×10⁻¹⁶ / 7.57×10⁻¹⁷ ≈ **2.0** (dimensionless). A ratio well above 1 means the steady-state flux demands ice much softer than reference — warm ice, or basal sliding being wrongly absorbed as extra deformation.

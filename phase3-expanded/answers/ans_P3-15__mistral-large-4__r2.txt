@@ -1,0 +1,21 @@
+1. **Discrete adjoint and gradient (general f, N steps).** With u_{k+1} = u_k + Δt f(u_k, θ), u_0 fixed, J_d = J(u_N), form the Lagrangian L = J(u_N) + Σ_{k=0}^{N−1} p_{k+1} (u_{k+1} − u_k − Δt f(u_k, θ)) with the sign chosen so adjoints stay positive. Stationarity in u_k gives the reverse recursion
+p_N = J′(u_N),  p_k = p_{k+1} (1 + Δt f_u(u_k, θ)),  k = N−1, …, 0,
+and dJ_d/dθ = ∂L/∂θ = Δt Σ_{k=0}^{N−1} p_{k+1} f_θ(u_k, θ). Equivalently by the chain rule: g_0 = 0, g_{k+1} = (1 + Δt f_u(u_k,θ)) g_k + Δt f_θ(u_k,θ), dJ_d/dθ = J′(u_N) g_N.
+
+2. **Forward Euler, Δt = 0.5, N = 2.** f(u,θ) = −θu³, f_u = −3θu², f_θ = −u³.
+u_1 = 1 + 0.5(−1) = **0.5**; u_2 = 0.5 + 0.5(−0.125) = **0.4375**; J_d = ½(0.4375)² = **0.095703125**.
+Discrete adjoint: λ_2 = u_2 = **0.4375**; λ_1 = 0.4375(1 + 0.5·(−0.75)) = **0.2734375**; λ_0 = 0.2734375(1 + 0.5·(−3)) = **−0.13671875**.
+dJ_d/dθ = 0.5[λ_1 f_θ(u_0) + λ_2 f_θ(u_1)] = 0.5[−0.2734375 − 0.0546875] = **−0.1640625** (matches the forward sensitivity recursion g_1 = −0.5, g_2 = −0.375, dJ_d/dθ = 0.4375·(−0.375)).
+
+3. **Discretized continuous adjoint.** λ̃_2 = 0.4375; f_u(u_2) = −3(0.4375)² = −0.57421875, so λ̃_1 = 0.4375(1 + 0.5·(−0.57421875)) = **0.3118896484375**; λ̃_0 = 0.3118896484375(1 + 0.5·(−0.75)) = **0.1949310302734375**.
+G̃ = 0.5[λ̃_0 f_θ(u_0) + λ̃_1 f_θ(u_1)] = 0.5[−0.1949310302734375 − 0.0389862060546875] = **−0.1169586181640625**.
+
+4. **Exact solution.** du/u³ = −θ dt ⇒ u(t) = (1 + 2θt)^(−1/2). At θ = T = 1: u(1) = 1/√3 = **0.5773502691896258**, J = ½·⅓ = **0.1666666666666667**. dJ/dθ = −T(1+2θT)^(−2) = **−1/9 = −0.1111111111111111**.
+
+5. **Finite differences and AD.** A finite-difference check on the code that computes J_d perturbs θ inside the discrete computation, so it matches the item 2 value **−0.1640625** — the exact derivative of the discrete loss. An AD tool differentiating through the solver steps (reverse mode through the 2 Euler steps) computes the same discrete adjoint and matches **−0.1640625** too. The item 3 value G̃ is a discretization of the *continuous* adjoint equation, not the adjoint of the discrete map, so it does not equal dJ_d/dθ at finite Δt. As Δt → 0 both item 2 and item 3 converge to the exact −1/9, each with O(Δt) error (forward Euler is first-order, and the λ̃ recursion plus left Riemann sum for ∫λf_θ dt is also first-order), so the gap between the two shrinks linearly in Δt.
+
+| Gradient | Value |
+|---|---|
+| dJ_d/dθ (exact discrete, item 2; what FD and AD-through-solver give) | −0.1640625 |
+| G̃ (discretized continuous adjoint, item 3) | −0.1169586181640625 |
+| dJ/dθ (exact continuous, item 4) | −0.1111111111111111 |

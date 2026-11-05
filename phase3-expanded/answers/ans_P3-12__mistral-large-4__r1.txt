@@ -1,0 +1,19 @@
+1. **Project.toml:2 — critical.** `julia = "1.12"` violates the hard rule "Julia 1.11 only". Fix: revert to `julia = "1.11"`.
+
+2. **Manifest.toml — critical.** `Manifest.toml` is never committed; this diff modifies and would commit it. Fix: drop the file from the commit entirely.
+
+3. **src/LossV.jl, `loss_value` mask — critical.** Rule says velocity gaps are NaN in `obs`, but the mask is `.!isnan.(pred)`. With a NaN in `obs`, `r` becomes NaN and the loss is NaN — the gap handling does nothing for the actual data. Fix: mask on `obs` (`.!isnan.(obs)`), or on both arrays.
+
+4. **src/LossV.jl, `loss_grad!` — critical.** It is not the gradient of the new `loss_value`: it omits the `1/sum(mask)` factor, it does not zero `g` at masked positions (leaves NaN there), it uses `l.scale` directly so `LossV()` with `scale = nothing` crashes on `nothing^2`, and it ignores the `s = mean(obs)` fallback. `fd_check` would fail. Fix: compute `s` the same way as `loss_value`, then `g .= 0; g[mask] .= 2 .* (pred[mask] .- obs[mask]) ./ (s^2 * sum(mask))`.
+
+5. **src/LossV.jl, `loss_value` scale fallback — major.** `mean(obs)` is NaN whenever `obs` contains a gap. Fix: mean over non-NaN entries only, or use a fixed default scale.
+
+6. **test/test_lossV.jl, `fd_check` tolerance — major.** `atol` relaxed from `1e-6` to `1.0`, which hides the broken adjoint instead of testing it. Fix: restore a tight tolerance once finding 4 is fixed.
+
+7. **src/LossV.jl, `LossV(; scale = nothing)` — minor.** Changes the default behavior of the constructor (scale now data-dependent); fine if intended, but it must stay consistent between `loss_value` and `loss_grad!`.
+
+8. **test/test_lossV.jl, NaN test — minor.** The test puts NaN in `pred`, contradicting the stated convention (gaps in `obs`); it passes only because the mask checks `pred`. Fix the test to match the real data layout once finding 3 is fixed.
+
+Fine: the `0.5` expectation matches the new `/sum(mask)` normalization; the `≈ 0.0` gap case is arithmetically correct for the given inputs; the `Union{T,Nothing}` field type itself is valid.
+
+VERDICT: request changes

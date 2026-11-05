@@ -1,0 +1,13 @@
+1. **a-31**: session store corrupted — `messages.jsonl` line 412 ends with unexpected EOF (truncated final line), agent in error state. **a-27**: provider returned 401 `token_expired`, agent paused with reason=auth — an auth problem, not a store problem.
+
+2. **a-31** (in order):
+   1. `check-session-store.sh a-31` — confirm it prints "truncated final line"
+   2. `rescue-session-context.sh a-31` — only if step 1 printed "truncated final line"
+   3. `respawn-stuck-agent.sh a-31` — starts a new session with the rescued context
+
+   **a-27**:
+   1. `paseo login` — user logs in again after the 401; the paused agent continues on its next prompt. No respawn or rescue needed.
+
+3. **No.** The watchdog saw only 2 consecutive health fails, then health recovered at 10:31:20 and the counter reset — under the 3-fail threshold, so no restart happened or is needed. And per the runbook, a problem in one agent is never a reason to restart the daemon, since that kills the turns of all agents.
+
+4. The 10:30 timeouts were two consecutive watchdog health checks timing out after 5s each (10:30:00, 10:31:00); the log doesn't give a root cause, but the daemon answered fine 20s later at 900ms latency, so it was transient. `messages.jsonl` became invalid because its final line (line 412) was cut off mid-write, giving "unexpected EOF". Only that one partial final message of a-31 is lost; lines 1–411 are intact and recoverable via the rescue script.

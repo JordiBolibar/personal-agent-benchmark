@@ -1,0 +1,65 @@
+Defects, most severe first (line numbers of the posted script):
+
+1. **L21 `rsync -a --delete $SRC $DEST/`** — `$SRC` has no trailing slash, so rsync copies the snapshot directory itself into `~/.vibe`: contents land in `~/.vibe/<timestamp>/`, not directly in `~/.vibe`. Even the happy path restores nothing.
+2. **L10-12 and L15-17** — both guards only `echo` and fall through; there is no `exit 1`, so the script continues inside the container and restores snapshots below the 10-file minimum.
+3. **L20 `rm -rf $DEST/*`** — the old config is deleted before the new one exists; any later failure leaves `~/.vibe` gutted. The glob also skips dotfiles, so hidden leftovers mix into the new config anyway.
+4. **L19 + L23** — with `set -e`, any failure after `docker stop` aborts before `docker start`; there is no trap, so `dev-box` stays stopped.
+5. **L6 `ls -t $SNAP_ROOT | head -1`** — selection is by mtime and accepts anything in the root: a `.partial` snapshot still being written (often newest by mtime), a plain file, or unrelated content.
+6. **L5/L7** — `$1` is never validated: missing or invalid, `ls -t` lists the cwd and `SRC` may not be a directory, so the destroy step runs from a wrong source.
+7. **L6/L7/L14/L20/L21** — every expansion is unquoted, so spaces in paths split into wrong words, making the script count, copy, and delete the wrong targets.
+8. **L22 `for f in $(find ...)`** — word splitting again plus unquoted `$f`: `.sh` files with spaces never get valid chmod, so scripts stay non-executable when the container starts.
+
+```bash
+#!/usr/bin/env bash
+# restore-config.sh <snapshot-root>: restore the newest finished snapshot into ~/.vibe
+set -euo pipefail
+export LC_ALL=C
+DEST=$HOME/.vibe; NEW=$DEST.new; OLD=$DEST.old
+
+if [ -f /.dockerenv ]; then echo "run on host only" >&2; exit 1; fi
+if [ $# -ne 1 ] || [ ! -d "$1" ]; then echo "usage: $0 <snapshot-root>" >&2; exit 1; fi
+SNAP_ROOT=$1
+
+# Recover from a crashed earlier run: finish an interrupted swap, drop stale staging.
+if [ -d "$OLD" ] && [ ! -e "$DEST" ]; then mv "$OLD" "$DEST"; fi
+rm -rf "$NEW"
+if [ -d "$OLD" ]; then rm -rf "$OLD"; fi
+
+# Newest finished snapshot: only directories named YYYY-MM-DD_HHMM (.partial never matches).
+shopt -s nullglob
+snaps=("$SNAP_ROOT"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]_[0-9][0-9][0-9][0-9])
+shopt -u nullglob
+LATEST=""
+if [ "${#snaps[@]}" -gt 0 ]; then
+  for d in "${snaps[@]}"; do
+    if [[ -d $d && $d > $LATEST ]]; then LATEST=$d; fi
+  done
+fi
+if [ -z "$LATEST" ]; then echo "no finished snapshot under $SNAP_ROOT" >&2; exit 1; fi
+
+count=0
+while IFS= read -r -d '' _; do count=$((count + 1)); done < <(find "$LATEST" -type f -print0)
+if [ "$count" -lt 10 ]; then echo "snapshot too small: $count files" >&2; exit 1; fi
+
+rollback() {  # any failure: put the old config back and start dev-box again
+  rc=$?
+  rm -rf "$NEW" 2>/dev/null || true
+  if [ -d "$OLD" ]; then rm -rf "$DEST" || true; mv "$OLD" "$DEST" || true; fi
+  docker start dev-box >/dev/null 2>&1 || true
+  exit "$rc"
+}
+trap rollback EXIT
+
+# Stage everything, make scripts executable, and only then stop the container.
+rsync -a "$LATEST/" "$NEW/"
+find "$NEW" -type f -name '*.sh' -exec chmod +x {} +
+docker stop dev-box
+if [ -e "$DEST" ]; then mv "$DEST" "$OLD"; fi
+mv "$NEW" "$DEST"
+docker start dev-box
+trap - EXIT
+rm -rf "$OLD" || true
+echo "restored ${LATEST##*/}"
+```
+
+How the fix works: all validation happens before anything is touched. The snapshot is staged into `~/.vibe.new` (trailing slash, chmod while staging), then swapped with two same-filesystem `mv` renames, so the old config in `~/.vibe.old` always exists while `docker stop` is in effect. The EXIT trap restores it and restarts `dev-box` on any failure; the snapshot glob matches only finished `YYYY-MM-DD_HHMM` directories.

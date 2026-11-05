@@ -1,0 +1,32 @@
+```julia
+using Test
+
+@testset "ela" begin
+    # sign change -> linear interpolation (exact hand-computed values, non-midpoint)
+    @test ela([0.0, 1.0], [-1.0, 1.0]) == 0.5
+    @test ela([10, 20], [-2, 6]) == 12.5
+    @test ela([0.0, 1.0, 2.0], [1.0, 5.0, -3.0]) == 1.625
+
+    # exact zeros: lowest one wins, interior zero, end-point zero, crossing beats a later zero
+    @test ela([1.0, 2.0, 3.0, 4.0], [0.0, 2.0, 0.0, -5.0]) == 1.0
+    @test ela([0.0, 2.0, 4.0], [-3.0, 0.0, 5.0]) == 2.0
+    @test ela([0.0, 1.0, 2.0], [1.0, 2.0, 0.0]) == 2.0
+    @test ela([0.0, 1.0, 2.0], [-1.0, 1.0, 0.0]) == 0.5
+    @test ela([3, 4], [0, 7]) === 3.0   # float(z[i]), not Int
+
+    # no zero at all -> nothing
+    @test isnothing(ela([1.0, 2.0, 3.0], [2.0, 5.0, 9.0])) && isnothing(ela([1.0, 2.0, 3.0], [-2.0, -5.0, -9.0]))
+
+    # invalid inputs
+    @test_throws ArgumentError ela([1, 2, 3], [1, 2])
+    @test_throws ArgumentError ela([1, 2], [1, 2, 3])
+    @test_throws ArgumentError ela([1], [1])
+    @test_throws ArgumentError ela([1.0, 1.0, 2.0], [1.0, 2.0, 3.0])
+    @test_throws ArgumentError ela([2.0, 1.0], [1.0, -1.0])
+end
+```
+
+Interpolation-formula bugs: wrong base point or missing delta in z or b, wrong denominator, midpoint shortcuts (exact non-midpoint results with z[i] ≠ 0).
+Zero-handling bugs: off-by-one zero index, scanning from high to low instead of lowest zero, dropped final `b[end] == 0` check, wrong priority between an exact zero and an earlier crossing.
+Validation bugs: length mismatch in both directions (including BoundsError leaks from a weakened check), length < 2, equal or decreasing z.
+Output bugs: `float()` conversion dropped (Int vs Float64 via `===`), returning a value or `missing` instead of `nothing` when no zero exists.
