@@ -1,0 +1,69 @@
+```julia
+function heat_step!(T::Matrix{Float64}, kappa::Float64, dt::Float64, dx::Float64)
+    nx, ny = size(T)
+    T_old = copy(T)          # explicit scheme: read old values, write new ones
+    r = kappa * dt / dx^2    # diffusion number
+
+    @inbounds for j in 1:ny
+        for i in 1:nx
+            # Neumann zero-flux: outside the grid, mirror the boundary node
+            ip = i < nx ? i + 1 : i
+            im = i > 1  ? i - 1 : i
+            jp = j < ny ? j + 1 : j
+            jm = j > 1  ? j - 1 : j
+
+            lap = T_old[ip, j] + T_old[im, j] + T_old[i, jp] + T_old[i, jm] - 4 * T_old[i, j]
+            T[i, j] = T_old[i, j] + r * lap
+        end
+    end
+    return T
+end
+```
+
+## 1. Von Neumann stability in 2D
+
+Plug a Fourier mode into the scheme:
+
+    T[i,j]^n = ξ^n * exp(I*(kx*i*dx + ky*j*dx))
+
+The 5-point Laplacian gives:
+
+    Lap(T)[i,j] = T[i,j] * (2cos(kx*dx) + 2cos(ky*dx) - 4) / dx^2
+
+So the amplification factor per step is:
+
+    ξ = 1 + r * (2cos(kx*dx) + 2cos(ky*dx) - 4),   r = kappa*dt/dx^2
+
+Using cos(θ) = 1 - 2sin²(θ/2):
+
+    ξ = 1 - 4r * (sin²(kx*dx/2) + sin²(ky*dx/2))
+
+Stability needs |ξ| ≤ 1 for every mode. ξ is largest when the sines are 0 (ξ = 1, fine), and smallest when both sines are 1 (the checkerboard mode):
+
+    ξ_min = 1 - 8r
+
+Requiring ξ_min ≥ -1 gives:
+
+    1 - 8r ≥ -1   →   r ≤ 1/4   →   dt ≤ dx² / (4*kappa)
+
+That is the condition. Note it comes from the shortest wavelength, not the longest — the limit is set by the grid spacing, not the domain size.
+
+## 2. What changes in 3D
+
+The stencil now has 6 neighbors, so:
+
+    ξ = 1 - 4r * (sin²(kx*dx/2) + sin²(ky*dx/2) + sin²(kz*dx/2))
+
+The worst case has all three sines equal to 1:
+
+    ξ_min = 1 - 12r ≥ -1   →   r ≤ 1/6   →   dt ≤ dx² / (6*kappa)
+
+In general, in d dimensions the condition is dt ≤ dx² / (2*d*kappa). So in 3D the allowed timestep is 4/6 = 2/3 of the 2D one: each added dimension costs a factor 2 in the denominator because the Laplacian touches more neighbors.
+
+## 3. What happens when the condition is violated
+
+If dt > dx²/(4κ), then r > 1/4 and ξ_min = 1 - 8r < -1. The checkerboard mode (neighboring nodes alternating high/low) gets multiplied by a factor with magnitude greater than 1 at every step, and it flips sign each step. Roundoff errors always excite this mode, so it grows exponentially as |ξ|^n. The result is an oscillating, growing pattern that quickly dominates the solution and ends in Inf/NaN. It is not a gradual loss of accuracy — the scheme becomes unstable, and no amount of small initial error saves it. In practice you see the solution blow up within a number of steps on the order of log(1/ε)/log|ξ|, where ε is the initial roundoff level.
+
+## 4. Complexity per timestep
+
+Each grid point does a constant amount of work: 4 neighbor reads, a few adds and multiplies, 1 write. So one timestep costs O(nx*ny) = O(N) operations, where N is the number of grid points, with O(1) extra memory per point. The scheme also needs one full copy of the grid (O(N) memory) because the update is explicit — new values must not be read by neighbors in the same step.

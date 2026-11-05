@@ -1,0 +1,35 @@
+TASK T1 | glm-5-3  n=2  median 207 tok/s  median wall 175.1s  out_total 66071
+    r1: 227s  out=32929  145.2 tok/s  cached=16000
+    r2: 123s  out=33142  268.8 tok/s  cached=15680
+TASK T1 | mistral-large-4  n=2  median 82.2 tok/s  median wall 116s  out_total 18231
+    r2: 132s  out=7428  56.2 tok/s  cached=2816
+    r1: 100s  out=10803  108.1 tok/s  cached=0
+TASK T2 | glm-5-3  n=1  median 222 tok/s  median wall 211.5s  out_total 46965
+    r1: 212s  out=46965  222 tok/s  cached=2304
+TASK T2 | mistral-large-4  n=2  median 116.4 tok/s  median wall 152s  out_total 35150
+    r1: 143s  out=18453  129.3 tok/s  cached=3072
+    r2: 161s  out=16697  103.6 tok/s  cached=15616
+TASK T3 | glm-5-3  n=1  median 219.9 tok/s  median wall 263.4s  out_total 57925
+    r1: 263s  out=57925  219.9 tok/s  cached=15680
+TASK T3 | mistral-large-4  n=1  median 84.9 tok/s  median wall 141.8s  out_total 12040
+    r1: 142s  out=12040  84.9 tok/s  cached=2816
+TASK T4 | glm-5-3  n=1  median 193.3 tok/s  median wall 229.4s  out_total 44337
+    r1: 229s  out=44337  193.3 tok/s  cached=15680
+TASK T4 | mistral-large-4  n=1  median 111 tok/s  median wall 163.5s  out_total 18151
+    r1: 164s  out=18151  111 tok/s  cached=15616
+TASK T5 | glm-5-3  n=1  median 234 tok/s  median wall 104.3s  out_total 24414
+    r1: 104s  out=24414  234 tok/s  cached=15680
+TASK T5 | mistral-large-4  n=1  median 103.4 tok/s  median wall 58.2s  out_total 6021
+    r1: 58s  out=6021  103.4 tok/s  cached=512
+TASK T6 | glm-5-3  n=1  median 166.6 tok/s  median wall 263s  out_total 43817
+    r1: 263s  out=43817  166.6 tok/s  cached=15680
+TASK T6 | mistral-large-4  n=1  median 94.8 tok/s  median wall 161.5s  out_total 15310
+    r1: 161s  out=15310  94.8 tok/s  cached=15616
+TASK T7 | glm-5-3  n=1  median 122.5 tok/s  median wall 32.1s  out_total 3927
+    r1: 32s  out=3927  122.5 tok/s  cached=15680
+TASK T7 | mistral-large-4  n=1  median 55.9 tok/s  median wall 42.8s  out_total 2388
+    r1: 43s  out=2388  55.9 tok/s  cached=512
+TASK T8 | glm-5-3  n=1  median 239.7 tok/s  median wall 172.2s  out_total 41265
+    r1: 172s  out=41265  239.7 tok/s  cached=15680
+TASK T8 | mistral-large-4  n=1  median 89.5 tok/s  median wall 243.3s  out_total 21777
+    r1: 243s  out=21777  89.5 tok/s  cached=15616

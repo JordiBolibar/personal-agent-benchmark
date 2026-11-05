@@ -1,0 +1,87 @@
+### 1. Findings, ranked by severity
+
+1. **The global `cache` kills the chosen reverse-mode VJP. [AD, fatal now.]** `cache[i] = ...` mutates an array that is neither `du` nor `u`. In the reverse VJP, SciMLSensitivity only shields the `du` argument of an in-place function; every other array write hits Zygote's hard rule. Symptom: the forward solve completes, then `Zygote.gradient` throws `Mutating arrays is not supported... setindex!(::Vector{Float64}, ...)` at the first adjoint VJP. People misread this, because the forward run looks healthy.
+
+2. **`cache::Vector{Float64}` cannot store dual numbers. [AD, fatal as soon as you fix the code the right way.]** Any forward-mode pass through `rhs!` — a stiff solver with `autodiff=true` (Jacobian from ForwardDiff), `ForwardDiffVVP`/`AutoDiffVJP`, or your own FD/ForwardDiff gradient check — writes dual fluxes into a hard `Float64` array. Symptom: `InexactError` / "cannot convert Dual{...} to Float64". This is why a quick fix stays unreliable: the cache is the root defect, and it blocks exactly the stiff formulation the problem needs.
+
+3. **Explicit `Tsit5()` on a stiff diffusion problem. [Performance/numerics, severe.]** The semi-discrete diffusion operator has eigenvalues up to ~`4D/dx²`, and `softplus` lets `D` grow without bound while training. An explicit solver is pinned at the stability limit `dx²/(2D)`. Symptom: step count explodes, wall time grows orders of magnitude, training aborts with `dt < dtmin` as `D` grows. The adjoint inherits the same stiffness.
+
+4. **Boundary fluxes live in stale slots. [Correctness, silent.]** The loop writes only `cache[2:N]`. The zero-flux BC at faces 1 and `N+1` works only because `zeros(N+1)` ran once and nothing ever touched those slots again. Add a second problem, a warm start, an ensemble/batch run, or anything that writes `cache` interleaved with a solve, and the BC slots turn to garbage with no error: wrong physics and wrong gradients. The shared global also makes `rhs!` re-entrant-unsafe (threads, ensembles, batching).
+
+5. **One NN call per interior face. [Performance, major.]** 49 separate Lux `Chain` invocations per RHS evaluation, each allocating a fresh input box, 16-wide hidden vector, and output; plus two slice copies from `cache[1:N]`, `cache[2:N+1]` (no views), and untyped global bindings. No BLAS batching at all. Multiplied by every step and every adjoint VJP. Symptom: GC pressure, slow steps, loss of type stability in a hot loop.
+
+6. **`saveat=1.0` saves 11 states, but the loss uses only `sol[end]`.** [Performance, minor.] `saveat=[10.0]` is enough if the loss stays endpoint-only.
+
+7. **`Random.default_rng()` is randomly seeded each session.** [Reproducibility, minor.] Results differ run to run; seed explicitly.
+
+8. **Small contract gaps: `rhs!` should `return nothing`, and no tolerances are set.** [Minor.] Default tolerances on both the forward and adjoint solve limit gradient quality.
+
+Not defects: the flux sign and the conservative `dH = (q_in - q_out)/dx` stencil are correct, `softplus` keeps `D >= 0` (parabolic), and `Hmid/100` is a sensible input normalization.
+
+### 2. First error
+
+The Zygote mutation error from finding 1. Load, `Lux.setup`, the forward solve and `loss(θ0)` all succeed; the failure comes at the first `rhs!` pullback inside the adjoint: `Mutating arrays is not supported... setindex!(::Vector{Float64}, ...)`. The dual `InexactError` (finding 2) would be the first error only after you switch to a stiff solver or a forward-mode VJP.
+
+### 3. Choice of `autojacvec`
+
+Use `EnzymeVJP()`. It differentiates `rhs!` in place at the LLVM level, so mutation of `du` and of per-call scratch is fully supported, no dual types are needed (a plain array scratch is fine), it is the fastest option, and it is the recommended default in current SciMLSensitivity.
+
+What each alternative requires of `cache`:
+
+| Choice | Requirement on `cache` |
+|---|---|
+| `EnzymeVJP()` (pick) | A per-call `similar(H, N+1)` (or `PreallocationTools.get_tmp`) works, plain `Float64` is fine. Keep it out of globals: heap arrays in boxed globals are a documented Enzyme hazard (shadowing, re-entrancy). |
+| `ForwardDiffVFP` / `AutoDiffVJP` | Must store duals: `PreallocationTools.dualcache(zeros(N+1))` plus `get_tmp(cache, H)` each call. A hard `Vector{Float64}` throws `InexactError`. |
+| `ZygoteVJP()` | No cache at all. Only `du` is shielded; any other `setindex!`, even into a local temp, throws. Requires a mutation-free rewrite. Also the slowest, with heavy compile churn. |
+| `ReverseDiffVJP` / `TrackerVJP` | Same class of restriction; writes into untracked buffers drop gradients silently. Legacy options, not worth it now. |
+| `autojacvec = false` | Materializes dense Jacobians by repeated real-valued calls; the global cache barely survives, but it is wasteful at larger `N`. |
+
+The cleanest fix is not a smarter cache but none: vectorize the NN over all faces, keep the only mutation in `dH`.
+
+### 4. Solver and sensealg for a stiff diffusion problem
+
+The solver is wrong, the sensealg is acceptable. Use an implicit method built for stiff ODEs: `Rodas5P()`, `KenCarp4()`, or `QNDF()`. The Jacobian is tridiagonal in `H` (cell `i` depends on `i-1, i, i+1`), so the implicit solves are cheap; passing a tridiagonal `jac_prototype` is an optional further speedup. `InterpolatingAdjoint` is a sound choice here: it interpolates the stored forward solution and solves the adjoint ODE, which is itself stiff, with the same implicit machinery. Keep it with `EnzymeVJP`. Set explicit `abstol`/`reltol`, and verify the gradient once against finite differences or `QuadratureAdjoint` before trusting training.
+
+```julia
+using Lux, NNlib, ComponentArrays, OrdinaryDiffEq, SciMLSensitivity, Zygote, Random
+
+# H0, Hobs are given vectors of length N
+
+rng = Xoshiro(123)                                # fixed seed, reproducible init
+nn  = Chain(Dense(1, 16, tanh), Dense(16, 1, softplus))
+θ0, st = Lux.setup(rng, nn)
+θ0 = ComponentArray(θ0)
+
+const N  = 50
+const dx = 100.0
+tspan = (0.0, 10.0)
+
+# In-place RHS: no globals, no captured scratch. Only dH is mutated, and every
+# temporary is typed from H, so ForwardDiff duals (stiff Jacobians, gradient
+# checks) and Enzyme shadows both propagate through it.
+function rhs!(dH, H, θ, t)
+    # one batched network call for all interior faces, instead of 49 scalar calls
+    Hm   = @views (H[1:N-1] .+ H[2:N]) .* (0.5 / 100)     # scaled midpoints
+    D, _ = nn(reshape(Hm, 1, :), θ, st)                   # 1 x (N-1)
+    # interior fluxes q[j] = D_j*(H[j] - H[j+1])/dx  (face j+1)
+    q = @views (vec(D) ./ dx) .* (H[1:N-1] .- H[2:N])
+    # conservative update, zero-flux BCs at faces 1 and N+1 written explicitly
+    dH[1] = -q[1] / dx
+    @views dH[2:N-1] .= (q[1:N-2] .- q[2:N-1]) ./ dx
+    dH[N] = q[N-1] / dx
+    return nothing
+end
+
+prob = ODEProblem(rhs!, H0, tspan, θ0)
+
+function loss(θ)
+    sol = solve(prob, Rodas5P(); p = θ, saveat = 1.0,
+                abstol = 1e-6, reltol = 1e-6,
+                sensealg = InterpolatingAdjoint(autojacvec = EnzymeVJP()))
+    return sum(abs2, sol[end] - Hobs) / N
+end
+
+g = Zygote.gradient(loss, θ0)
+```
+
+Two notes on the fixed code: `saveat=1.0` is kept so the loss can later use all snapshots; if it stays endpoint-only, `saveat=[10.0]` saves work. The math is bit-for-bit the same as the original stencil, only the boundary fluxes are now written explicitly instead of inherited from a one-time `zeros`.

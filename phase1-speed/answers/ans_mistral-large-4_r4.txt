@@ -1,0 +1,72 @@
+```julia
+function heat_step!(T::Matrix{Float64}, kappa::Float64, dt::Float64, dx::Float64)
+    ny, nx = size(T)
+    # Explicit scheme needs all old values, so work from a copy.
+    T_old = copy(T)
+    @inbounds for j in 1:nx, i in 1:ny
+        # Clamped indices implement Neumann (zero-flux) BCs:
+        # the ghost point outside the domain equals the boundary value,
+        # so the normal derivative is zero.
+        im = i > 1 ? i - 1 : 1
+        ip = i < ny ? i + 1 : ny
+        jm = j > 1 ? j - 1 : 1
+        jp = j < nx ? j + 1 : nx
+        lap = (T_old[ip, j] + T_old[im, j] + T_old[i, jp] + T_old[i, jm] - 4.0 * T_old[i, j]) / dx^2
+        T[i, j] = T_old[i, j] + kappa * dt * lap
+    end
+    return T
+end
+```
+
+## 1. Von Neumann stability in 2D
+
+Write the scheme with `r = kappa*dt/dx^2`:
+
+```
+T[i,j]^(n+1) = T[i,j]^n + r * (T[i+1,j] + T[i-1,j] + T[i,j+1] + T[i,j-1] - 4*T[i,j])^n
+```
+
+Insert a Fourier mode `T[i,j]^n = G^n * exp(i*(kx*i*dx + ky*j*dx))` with `θx = kx*dx`, `θy = ky*dx`. Each neighbor shift contributes a phase factor, e.g. `T[i+1,j] -> e^{iθx} T[i,j]`, so the amplification factor is:
+
+```
+G = 1 + r * (e^{iθx} + e^{-iθx} + e^{iθy} + e^{-iθy} - 4)
+  = 1 + 2r * (cos θx + cos θy - 2)
+  = 1 - 4r * (sin²(θx/2) + sin²(θy/2))
+```
+
+Stability requires `|G| <= 1` for all θx, θy. Since `G <= 1` always (the sine terms are non-negative), the binding condition is `G >= -1`:
+
+```
+1 - 4r * (sin²(θx/2) + sin²(θy/2)) >= -1
+r * (sin²(θx/2) + sin²(θy/2)) <= 1/2
+```
+
+The maximum of `sin²(θx/2) + sin²(θy/2)` is 2 (at `θx = θy = π`, the checkerboard mode), so:
+
+```
+r <= 1/4   =>   dt <= dx² / (4 * kappa)
+```
+
+## 2. What changes in 3D
+
+The Laplacian now has 6 neighbors (±x, ±y, ±z). The amplification factor becomes:
+
+```
+G = 1 - 4r * (sin²(θx/2) + sin²(θy/2) + sin²(θz/2))
+```
+
+The maximum of the sine sum is now 3, so `r <= 1/6` and:
+
+```
+dt <= dx² / (6 * kappa)
+```
+
+In d dimensions the condition is `dt <= dx² / (2*d*kappa)`. The limit gets stricter with dimension because more neighbors feed into each update, so the explicit scheme's stable timestep shrinks like `1/d`.
+
+## 3. What happens when the condition is violated
+
+If `r > 1/4`, modes with `sin²(θx/2) + sin²(θy/2) > 1/(2r)` have `G < -1`. The worst offender is the checkerboard mode (`θx = θy = π`), with `G = 1 - 8r < -1`. Its amplitude grows by `|G| > 1` every step and flips sign each step, so the solution develops an increasingly large oscillating checkerboard pattern instead of smoothing out. The growth is exponential (`|G|^n`), so after enough steps the values overflow to `Inf`/`NaN` and the simulation is destroyed. Note the instability is a property of the discretization, not of roundoff: even tiny perturbations in those modes grow, and roundoff always supplies them.
+
+## 4. Computational complexity per timestep
+
+Each grid point does a constant number of flops (4 neighbor reads, 1 Laplacian, 1 update), so one timestep costs **O(nx * ny) = O(N)** time, where N is the number of grid points. The `copy(T)` at the start adds another O(N). Memory is O(N) for the array plus O(N) for the one temporary copy (unavoidable for an explicit scheme, since all updates must use old values).

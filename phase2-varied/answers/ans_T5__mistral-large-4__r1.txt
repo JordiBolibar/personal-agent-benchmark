@@ -1,0 +1,98 @@
+# A. SIA derivation for a parallel-sided slab
+
+**Setup.** Take x down-flow, z upward from the bed, surface at z = H, surface slope α (small, sin α ≈ tan α = |∂S/∂x|). The shallow ice approximation keeps only the vertical shear stress. The stress balance is
+
+∂τ_xz/∂z = −ρ g sin α  ⇒  τ_xz(z) = ρ g sin α (H − z),  τ_b = ρ g H sin α.
+
+Glen's law gives the shear strain rate γ̇ = ∂u/∂z = 2 A τ_xzⁿ. Integrating from the bed (u = u_b at z = 0):
+
+**Horizontal velocity profile**
+
+u(z) = u_b + (2A/(n+1)) (ρ g sin α)ⁿ [ Hⁿ⁺¹ − (H − z)ⁿ⁺¹ ]
+
+**Surface velocity from deformation** (z = H)
+
+u_s = u_b + (2/(n+1)) A (ρ g sin α)ⁿ Hⁿ⁺¹ = u_b + (2/(n+1)) A τ_bⁿ H
+
+**Depth-averaged velocity** (integrate over z and divide by H)
+
+ū = u_b + (2/(n+2)) A (ρ g sin α)ⁿ Hⁿ⁺¹
+
+**Flux**
+
+q = H ū = H u_b + (2/(n+2)) A (ρ g sin α)ⁿ Hⁿ⁺²
+
+**Diffusivity.** With sin α = |∂S/∂x|, write q = −D ∂S/∂x. Then
+
+D = (2A/(n+2)) (ρ g)ⁿ Hⁿ⁺² |∂S/∂x|ⁿ⁻¹
+
+(and the mass conservation ∂H/∂t = −∂q/∂x + Ṁ becomes a nonlinear diffusion equation).
+
+**With Weertman sliding u_b = C τ_bᵐ**, τ_b = ρ g H sin α:
+
+q = C H (ρ g H sin α)ᵐ + (2/(n+2)) A (ρ g sin α)ⁿ Hⁿ⁺²
+
+D_total = (2A/(n+2)) (ρ g)ⁿ Hⁿ⁺² |∂S/∂x|ⁿ⁻¹ + C (ρ g)ᵐ Hᵐ⁺¹ |∂S/∂x|ᵐ⁻¹
+
+**Ratio surface / depth-averaged, no sliding:**
+
+u_s/ū = (n+2)/(n+1); for n = 3 this is 5/4 = 1.25.
+
+With sliding, the same u_b is added to both, so the ratio drops toward 1 as sliding grows:
+
+u_s/ū = [u_b + 2X/(n+1)] / [u_b + 2X/(n+2)],  X = A (ρ g sin α)ⁿ Hⁿ⁺¹.
+
+# B. Numbers
+
+τ_b = ρ g H sin α = 900 × 9.81 × 300 × 0.05 = **132,435 Pa** ≈ 1.324 × 10⁵ Pa
+
+τ_b³ = (1.32435 × 10⁵)³ = 2.323 × 10¹⁵ Pa³
+
+A τ_b³ = 2.4 × 10⁻²⁴ × 2.323 × 10¹⁵ = 5.575 × 10⁻⁹ s⁻¹
+
+Deformation surface speed:
+
+u_s,def = (2/4) A τ_b³ H = 0.5 × 5.575 × 10⁻⁹ × 300 = 8.363 × 10⁻⁷ m/s
+
+Convert (1 a = 3.15576 × 10⁷ s): 8.363 × 10⁻⁷ × 3.15576 × 10⁷ = **26.4 m/a**
+
+Depth-averaged deformation speed: (2/5) A τ_b³ H → **21.1 m/a** (check: 26.4/21.1 = 1.25 ✓)
+
+Implied sliding speed:
+
+u_b = u_obs − u_s,def = 40 − 26.4 = **13.6 m/a**
+
+(If m = 3, this corresponds to C = u_b/τ_b³ = (13.6/3.15576×10⁷)/2.323×10¹⁵ ≈ 1.9 × 10⁻²² Pa⁻³ s⁻¹.)
+
+# C. Error propagation on inferred sliding
+
+u_s,def ∝ Hⁿ⁺¹ sinⁿ α = H⁴ sin³ α (n = 3), and u_b = u_obs − u_s,def.
+
+**H +10% (H = 330 m), slope unchanged:**
+u_def = 26.4 × 1.1⁴ = 26.4 × 1.4641 = 38.6 m/a → u_b = 40 − 38.6 = **+1.4 m/a** (was 13.6). A 10% thickness error removes ~12 m/a of inferred sliding.
+
+**Slope +20% (sin α = 0.06), H unchanged:**
+u_def = 26.4 × 1.2³ = 26.4 × 1.728 = 45.6 m/a → u_b = 40 − 45.6 = **−5.6 m/a**, unphysical. The slope error alone makes deformation exceed the observed speed, so no sliding can be inferred at all.
+
+**Both errors together:** u_def = 26.4 × 1.4641 × 1.728 = 66.8 m/a → u_b = −26.8 m/a.
+
+Takeaway: inferred sliding is extremely sensitive to H (fourth power) and slope (cubed power). Small positive errors in either quickly drive the inferred sliding to zero or negative, which is the classic sign that A, sliding, H and slope are tangled together.
+
+# D. Identifiability and SIA failure zones
+
+**When A and sliding can / cannot be separated.** With only surface velocity and thickness you have one equation,
+
+u_s = C (ρ g H sin α)ᵐ + (2/(n+1)) A (ρ g H sin α)ⁿ H,
+
+with two unknowns (A and C, or equivalently A and u_b). For n = m = 3 the data only constrain the combination C + A H/2 — A and sliding are perfectly tradeable, so they cannot be separated. You can separate them only if you assume one of them (e.g. u_b = 0 gives A, or a known A gives u_b), and any error in that assumption lands entirely on the other. Extra data that helps:
+
+- a vertical velocity profile (borehole inclinometry), which gives ū or u_b directly and breaks the trade-off;
+- depth-averaged velocity from ice flux and continuity with a known mass balance (flux gives ū, not u_s, and ū/u_s = (n+1)/(n+2) only for pure deformation);
+- time series of velocity (seasonal meltwater changes sliding much more than A);
+- independent knowledge of A (lab value or calibrated on another glacier).
+
+**Three places in a real valley glacier where SIA fails, and the bias each causes in an inversion:**
+
+1. **Shear margins / valley walls.** Lateral drag means the effective driving stress is much less than ρ g H sin α. SIA ignores this and overpredicts deformation, so an inversion would infer too little sliding (or a too-low A, even negative sliding near the margins).
+2. **Icefalls / very steep reaches.** Longitudinal stresses and extending flow add surface speed that local SIA cannot produce. The inversion attributes this extra speed to sliding or A, biasing both high.
+3. **Over bedrock riegels/steps, or on deformable till.** SIA assumes a gently varying bed and a rigid base. Bed topography perturbs the stress field (local bias, sign depends on position), and till deformation adds basal motion that is indistinguishable from sliding — the inversion overestimates sliding (or C).

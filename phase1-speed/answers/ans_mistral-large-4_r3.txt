@@ -1,0 +1,62 @@
+```julia
+function heat_step!(T::Matrix{Float64}, kappa::Float64, dt::Float64, dx::Float64)
+    nx, ny = size(T)
+    alpha = kappa * dt / dx^2
+    # Work on a copy of the old state so every update uses t, not t+dt/2 mixes
+    Told = copy(T)
+    for j in 2:(ny - 1), i in 2:(nx - 1)
+        T[i, j] = Told[i, j] + alpha * (Told[i + 1, j] + Told[i - 1, j] +
+                                          Told[i, j + 1] + Told[i, j - 1] -
+                                          4.0 * Told[i, j])
+    end
+    # Neumann (zero-flux): copy interior edge values to the boundary cells
+    for i in 1:nx
+        T[i, 1]  = T[i, 2]
+        T[i, ny] = T[i, ny - 1]
+    end
+    for j in 1:ny
+        T[1, j]  = T[2, j]
+        T[nx, j] = T[nx - 1, j]
+    end
+    return T
+end
+```
+
+## 1. Von Neumann stability in 2D
+
+Insert a Fourier mode `T[i,j]^n = G^n exp(i(kx i dx + ky j dy))` into the update
+
+`T[i,j]^{n+1} = T[i,j]^n + alpha (T[i+1,j]^n + T[i-1,j]^n + T[i,j+1]^n + T[i,j-1]^n - 4 T[i,j]^n)`,
+
+with `alpha = kappa dt / dx^2`. The amplification factor is
+
+`G = 1 + alpha (e^{i kx dx} + e^{-i kx dx} + e^{i ky dx} + e^{-i ky dx} - 4)
+   = 1 - 4 alpha (sin^2(kx dx / 2) + sin^2(ky dx / 2))`.
+
+Stability requires `|G| <= 1` for all modes, i.e. `-1 <= 1 - 4 alpha S <= 1` where `S = sin^2(kx dx/2) + sin^2(ky dx/2)` in `[0, 2]`. The binding case is `S = 2` (the checkerboard mode `kx dx = ky dx = pi`):
+
+`1 - 8 alpha >= -1  =>  alpha <= 1/4  =>  dt <= dx^2 / (4 kappa)`.
+
+The Neumann boundaries do not change this: they only remove the Dirichlet sine modes, and the cosine (Neumann) modes span the same range of `S`, including the worst case.
+
+## 2. What changes in 3D
+
+The Laplacian gains a third neighbor pair, so
+
+`G = 1 - 4 alpha (sin^2(kx dx/2) + sin^2(ky dx/2) + sin^2(kz dx/2))`,
+
+`S` now ranges over `[0, 3]`, and the condition becomes `alpha <= 1/6`, i.e.
+
+`dt <= dx^2 / (6 kappa)`.
+
+In `d` dimensions the general rule is `dt <= dx^2 / (2 d kappa)`. So going from 2D to 3D the allowed timestep shrinks by a factor 2/3 at fixed `dx` — this is the well-known cost of explicit schemes in higher dimensions.
+
+## 3. What happens when the condition is violated
+
+For `alpha > 1/4` the checkerboard mode has `G < -1`, so `|G| > 1` and that mode grows in magnitude and flips sign every step. The result is a rapidly growing, grid-scale oscillating pattern (checkerboard noise) that quickly swamps the physical solution and overflows to `Inf`/`NaN`. Modes with smaller `S` may still be damped, which is why the blow-up looks like high-frequency noise rather than a smooth divergence. It is not a slow loss of accuracy — it is a hard instability: once `dt` exceeds the limit, no amount of "small" violation is safe.
+
+## 4. Complexity per timestep
+
+One update per interior grid point, each doing a constant number of flops (4 neighbor reads + arithmetic), plus O(nx + ny) work for the boundary copies. So the cost per timestep is
+
+`O(nx * ny)` time, `O(nx * ny)` extra memory for the `Told` copy (which can be avoided with a second buffer swapped in place, still O(nx * ny) total). The stability limit `dt ~ dx^2` means the number of timesteps to reach a fixed final time `T_final` scales as `T_final / dx^2`, so total work to reach `T_final` is `O(nx * ny * T_final / dx^2)`, i.e. quadratic in the grid resolution — the classic price of explicit time stepping.

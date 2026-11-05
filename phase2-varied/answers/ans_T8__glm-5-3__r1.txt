@@ -1,0 +1,102 @@
+## 1. Derivation
+
+Chain per face k = 1..N−1 (S = B + H):
+
+- `dS[k] = (S[k+1] − S[k])/Δx`, `Hf[k] = (H[k] + H[k+1])/2`
+- `D[k] = Γ Hf^(n+2) |dS|^(n−1)`, `q[k] = −D[k]·dS[k]`
+- `dH[i] = (q[i−1] − q[i])/Δx` for i = 2..N−1; `dH[1] = dH[N] = 0`
+
+Pull λᵀ dH back through H → (dS, Hf) → D → q → dH.
+
+**Adjoint of the frozen divergence.** λᵀ dH = Σᵢ λᵢ (q[i−1] − q[i])/Δx, i only over living cells 2..N−1. So each flux q[k] gets the weight
+
+- `q̄[k] = ([k ≤ N−2]·λ[k+1] − [k ≥ 2]·λ[k]) / Δx`
+- interior faces k = 2..N−2: `(λ[k+1] − λ[k])/Δx`; face 1: `λ[2]/Δx`; face N−1: `−λ[N−1]/Δx`
+- λ[1] and λ[N] never enter, because rows 1 and N of the Jacobian are identically zero.
+
+**Local partials of q.** D depends on both dS and Hf: ∂D/∂dS = (n−1)D/dS, ∂D/∂Hf = (n+2)D/Hf. So
+
+- `∂q/∂dS = −(D + dS·(n−1)D/dS) = −n·D`
+- `∂q/∂Hf = −(n+2)·D·dS/Hf` (limit is 0 at Hf = 0)
+
+**Scatter to H.** ∂dS/∂H = (−1/Δx, +1/Δx), ∂Hf/∂H = (1/2, 1/2) on cells (k, k+1). With A = ∂q/∂dS and B = ∂q/∂Hf:
+
+- `out[k]   += q̄·(−A/Δx + B/2)`
+- `out[k+1] += q̄·(+A/Δx + B/2)`
+
+Frozen rows ≠ frozen columns: `out[1]` and `out[N]` still receive real contributions from the two outer faces, and must not be zeroed.
+
+## 2. Errors in `vjp_H!`
+
+1. **Missing factor n in `dqdS = -c.D`.** The code differentiates q = −D·dS as if D did not depend on dS, but D ∝ |dS|^(n−1). Correct is −n·D. The slope (diffusivity-feedback) part of every gradient component comes out n times too small (factor 3 at Glen n = 3). Invisible at n = 1, so n = 1 tests hide it. Gradient direction is biased toward the thickness term.
+
+2. **The dS contribution lands on the wrong neighbor.** Given the A above, it must be `out[k] += h − s; out[k+1] += h + s`; the code flips both signs. The antisymmetric part is shifted one cell sideways along each face. Key trap: Σⱼ gⱼ is unchanged (the s terms cancel in the sum), so norms, totals and uniform-weight losses pass while per-cell components are wrong, some with flipped sign. An optimizer then pushes ice the wrong way along the slope. A symmetric test geometry partially cancels this error too.
+
+3. **Stale cache — the gradient is evaluated at the wrong state.** The function never reads `H` (it cannot: `B` is not even destructured) and trusts `c.dS/c.Hf/c.D` left by the last `rhs!` call. In a real backward solve the VJP is called at checkpointed states in reverse time order, interleaved with `rhs!` at trial states (RK stages, predictor–corrector), so the cache belongs to another state. The result is a silently wrong linearization point, inconsistent between calls — LBFGS memories and line searches corrupt, convergence degrades for no visible reason. Unit tests that always call `rhs!` on the same H right before `vjp_H!` never see it.
+
+4. **`q̄ = diff(λ)./Δx` ignores the frozen rows.** λ[1] and λ[N] multiply identically-zero Jacobian rows, so they must not appear at any face. `diff(λ)` injects −λ[1]/Δx into face 1 and +λ[N]/Δx into face N−1. Tests with zero-ended λ pass. In a real solve two things break this: a loss that touches the divide/margin cells, and the backward ODE itself — λ̇[i] = −out[i] and out[1] ≠ 0, so λ[1] grows during the backward sweep even from a terminal λ with zero ends. Then the two outer faces get spurious flux ∝ λ boundary values: an edge artifact exactly where glaciers are most sensitive. (Conversely: masking must apply to λ on input, never to `out`.) Also fully wrong for N = 2, where the correct q̄ is zero.
+
+5. **NaN at dry faces: `c.D ./ c.Hf`.** Real glacier geometries have exact zero-thickness cells outside the snout (initial states from masks). At a face between two dry cells, D = 0 and Hf = 0, so D/Hf = 0/0 = NaN, and one NaN poisons the whole gradient vector — the optimizer halts or the run fails only on real data. The true limit is 0 (D/Hf = Γ·Hf^(n+1)|dS|^(n−1)). The forward pass is fine at the same cells (0^(n+2) = 0), so nothing upstream warns you. Fix by factorizing; never form 0/0.
+
+## 3. Corrected `vjp_H!`
+
+```julia
+function vjp_H!(out, λ, H, p, t)
+    (; B, Γ, n, Δx) = p
+    N = length(H)
+    invΔx = 1 / Δx
+
+    out .= 0.0
+
+    @inbounds for k in 1:N-1
+        # Face quantities recomputed from the H given to THIS call.
+        dS = (B[k+1] + H[k+1] - B[k] - H[k]) * invΔx
+        Hf = (H[k] + H[k+1]) / 2
+        D  = Γ * Hf^(n + 2) * abs(dS)^(n - 1)
+
+        # Adjoint flux over face k. Rows 1 and N of ∂dH/∂H are zero,
+        # so λ[1] and λ[N] never contribute.
+        q̄ = 0.0
+        (k + 1 <= N - 1) && (q̄ += λ[k+1])
+        (k >= 2)         && (q̄ -= λ[k])
+        q̄ *= invΔx
+
+        # Partials of q_k = -D_k * dS_k, factorized so that Hf = 0
+        # or dS = 0 give exact zeros instead of 0/0 or D/0.
+        dqdS  = -n * D
+        dqdHf = -(n + 2) * Γ * Hf^(n + 1) * abs(dS)^(n - 1) * dS
+
+        # ∂dS/∂(H_k, H_{k+1}) = (-1, +1)/Δx and ∂Hf/∂(H_k, H_{k+1}) = (1/2, 1/2)
+        out[k]   += q̄ * (-dqdS * invΔx + dqdHf / 2)
+        out[k+1] += q̄ * ( dqdS * invΔx + dqdHf / 2)
+    end
+end
+```
+
+Notes: it is self-contained (no read of the rhs cache, so bug 3 disappears by construction); `out[1]` and `out[end]` are filled by design; no allocations. If you keep the cache pattern, fill `dS/Hf/D` from the received `H` at the top of the function — but be aware the shared scratch is then clobbered for anyone still reading forward-time values.
+
+## 4. Test plan
+
+**Exact hand anchor (no tooling needed):** N = 3, B = 0, Δx = 1, Γ = 1, n = 3, H = (1, 2, 4).
+- λ = (0, 1, 0) → g = (10.125, −1331.4375, 4536.0)
+- λ = (5, 1, 7) → the same g (boundary masked). The buggy code gives (−20.25, 2586.9375, 648.0) for the first λ, and Σg matches in both cases — the sum invariance that hides bugs 1–2.
+
+**Primary check, Enzyme (`EnzymeVJP`):** compare against `g_ref = Enzyme.gradient` of the scalar closure `s(H) = (rhs!(scratch, H, p, t); dot(λ, scratch))`, with parameters and λ as `Const` and H active. `rhs!` itself zeroes dH[1], dH[N], so the reference has zero rows automatically — it validates the boundary mask too. Component-wise `isapprox(g, g_ref; rtol = 1e-10, atol = 1e-12)`; expected normalized sup error ~1e−13. Both sides differentiate the same discrete ops, so anything above 1e−8 is a bug, not noise.
+
+**Independent FD cross-check** (also validates the Enzyme wiring): central differences on the same scalar, `g_fd[j] = (s(H + εe_j) − s(H − εe_j)) / 2ε` with `ε = 1e-6·max(1, |H[j]|)`; at H[j] = 0 use one-sided second order (two-sided makes H negative, unphysical and breaks the real powers). Gate: normalized sup error ≤ 1e−5, expected 1e−6–1e−7. Cheaper variant: the directional identity δᵀg = (s(H+εδ) − s(H−εδ))/2ε over ≥ 64 seeded random δ.
+
+**H states (each against all λ below, at n = 3):**
+1. Textbook parabolic bed, one-signed slopes, H ∈ [10, 400] m, no zeros (N = 8 and N = 64).
+2. Same with 3 faces where S is made exactly constant — dS = 0 (removable singularity).
+3. Real-geometry-like: snout then 3 trailing cells with H = 0 (B ≠ 0) — dry faces. Assert `all(isfinite, g)` besides matching the reference; this is the state where the old code returns NaN.
+4. Thin dynamic-range state, H ∈ [0.01, 5] m.
+5. Asymmetric state with sign(dS) changing twice (basin + tongue) — catches the neighbor swap where symmetry would partially cancel it.
+6. Mid-solve states: after 5 and 50 explicit steps — the states a real solve actually visits.
+
+**λ set (seeded RNG):** (i) N(0,1) with nonzero ends (catches bug 4); (ii) ends zeroed (accidentally-passing case, must still match); (iii) weighted loss-like `λ = w ⊙ (H − H_obs)` with interior mask.
+
+**Bug-3 and bug-4 regressions (real-solve conditions):**
+- Stale cache: `rhs!` at H_A, then `vjp_H!` at H_B ≠ H_A with no intermediate call; must match Enzyme at H_B. Repeat in reversed and interleaved order.
+- In-solve: 20+ RK4 steps forward, terminal loss L = Σ wᵢHᵢ(T) with w ≠ 0 at the boundary cells (and a second run with interior-only w — after ~20 backward steps λ[1], λ[N] are nonzero anyway). Accumulate ∂L/∂H₀ with the manual backward pass (λ ← λ − Δt·g) and compare with Enzyme through the same hand-rolled solve (gate 5e−10) and with central FD replaying the whole solve per component (gate 1e−5, ε = 1e−6·max(1,|H₀[j]|)).
+
+**Coverage map:** bug 1 → any reference test at n ≠ 1; bug 2 → component-wise comparison on state 5 (sums and norms cannot catch it); bug 3 → stale/interleaved and in-solve tests; bug 4 → λ with nonzero ends, plus the in-solve backward sweep; bug 5 → the dry-margin state plus the finiteness assert.

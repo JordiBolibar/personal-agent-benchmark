@@ -1,0 +1,60 @@
+```julia
+function heat_step!(T::Matrix{Float64}, kappa::Float64, dt::Float64, dx::Float64)
+    n, m = size(T)
+    r = kappa * dt / dx^2
+    T_old = copy(T)  # explicit scheme needs the values from the previous step
+
+    for j in 1:m
+        for i in 1:n
+            # Neumann (zero-flux): mirror the neighbor across the boundary,
+            # i.e. the ghost cell equals the inner cell, so the normal
+            # derivative at the boundary is zero.
+            ip = i == n ? max(i - 1, 1) : i + 1
+            im = i == 1 ? min(i + 1, n) : i - 1
+            jp = j == m ? max(j - 1, 1) : j + 1
+            jm = j == 1 ? min(j + 1, m) : j - 1
+
+            T[i, j] = T_old[i, j] + r * (
+                T_old[ip, j] + T_old[im, j] +
+                T_old[i, jp] + T_old[i, jm] -
+                4.0 * T_old[i, j]
+            )
+        end
+    end
+    return T
+end
+```
+
+## 1. Von Neumann stability in 2D
+
+The scheme is FTCS (forward in time, centered in space):
+
+T_ij^(n+1) = T_ij^n + r (T_{i+1,j}^n + T_{i-1,j}^n + T_{i,j+1}^n + T_{i,j-1}^n − 4 T_ij^n),  with r = kappa·dt/dx².
+
+Insert a Fourier mode T_ij^n = ξ^n exp(i(θx i + θy j)), where θx = kx dx and θy = ky dx:
+
+ξ = 1 + r (e^{iθx} + e^{−iθx} + e^{iθy} + e^{−iθy} − 4)
+  = 1 + 2r (cos θx + cos θy − 2)
+  = 1 − 4r sin²(θx/2) − 4r sin²(θy/2).
+
+Stability requires |ξ| ≤ 1 for every mode. Since the sin² terms are between 0 and 1, the worst case is sin²(θx/2) = sin²(θy/2) = 1, giving ξ_min = 1 − 8r. The condition ξ_min ≥ −1 gives:
+
+1 − 8r ≥ −1  →  r ≤ 1/4  →  **dt ≤ dx² / (4 kappa)**.
+
+The Neumann boundaries do not change this: with the ghost-cell mirror, boundary modes are combinations of the same interior amplification factors, so the interior bound governs.
+
+## 2. What changes in 3D
+
+The stencil now has 6 neighbors, so:
+
+ξ = 1 − 4r [sin²(θx/2) + sin²(θy/2) + sin²(θz/2)],
+
+and the worst case gives ξ_min = 1 − 12r, so r ≤ 1/6, i.e. **dt ≤ dx² / (6 kappa)**. In d dimensions the rule is dt ≤ dx² / (2 d kappa): each extra dimension adds one more neighbor pair and tightens the bound by a factor 2/d.
+
+## 3. What happens when the condition is violated
+
+If dt > dx²/(4 kappa), then for the highest-frequency modes (checkerboard, θx = θy = π) the amplification factor satisfies ξ < −1. Those modes flip sign every step and grow in magnitude by more than 1 each step, so a tiny rounding error quickly becomes a growing checkerboard oscillation across the whole grid. The solution blows up exponentially and ends in Inf/NaN. It is not a gradual loss of accuracy: the scheme is either stable (|ξ| ≤ 1 for all modes) or violently unstable, with a sharp threshold at r = 1/4.
+
+## 4. Complexity per timestep
+
+O(n·m) time — one constant amount of work per cell (4 neighbor reads, 1 write, a few flops), so O(N) in the number of grid points N. Memory is O(N) as well, plus one extra O(N) temporary matrix for the old values (the explicit scheme cannot read and write the same array safely).

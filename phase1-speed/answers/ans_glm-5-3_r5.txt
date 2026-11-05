@@ -1,0 +1,108 @@
+Below is the function, then the four points. Two assumptions are baked into the signature and stated here once: the grid spacing is the same in both directions (`dy = dx`, only one `dx` is passed), and zero flux is implemented with mirrored ghost cells (`T[0,j] = T[1,j]`, etc.), which makes the discrete flux through each wall exactly zero and preserves the sum of `T` exactly. `T` is column-major, first index = row (y).
+
+```julia
+"""
+    heat_step!(T, kappa, dt, dx)
+
+One explicit (FTCS) timestep of the 2D heat equation
+
+    dT/dt = kappa * (T_xx + T_yy)
+
+on a uniform grid with spacing `dx` in both directions (column-major `T`,
+first index = y row). Zero-flux (Neumann) walls: ghost values mirror the
+edge values, so no heat leaves the box and sum(T) is preserved exactly.
+`T` is updated in place and returned.
+
+Stability: the scheme is stable only for kappa*dt/dx^2 <= 1/4,
+i.e. dt <= dx^2 / (4*kappa). Above that the solution blows up.
+"""
+function heat_step!(T::Matrix{Float64}, kappa::Float64, dt::Float64, dx::Float64)
+    ny, nx = size(T)             # T[i, j]: i = row (y direction), j = column (x)
+    (nx == 0 || ny == 0) && return T
+
+    r = kappa * dt / (dx * dx)   # mesh ratio kappa*dt/dx^2
+    c = 1.0 - 4.0 * r            # weight of the center node
+
+    # `above` and `current` hold the OLD (pre-step) values of rows i-1 and i.
+    # Row i-1 is already overwritten in T when we process row i, so its old
+    # values must be kept aside. Row i+1 is still untouched: read it from T.
+    # Extra memory is two rows, O(nx), not a full copy O(nx*ny).
+    above   = Vector{Float64}(undef, nx)
+    current = Vector{Float64}(undef, nx)
+
+    @inbounds for i in 1:ny
+        # Save the old values of row i before overwriting them.
+        for j in 1:nx
+            current[j] = T[i, j]
+        end
+
+        top    = (i == 1)         # ghost row above mirrors row i
+        bottom = (i == ny)        # ghost row below mirrors row i
+
+        for j in 1:nx
+            # Zero-flux boundaries: a missing neighbour is replaced by the
+            # node itself (mirrored ghost cell -> zero gradient at the wall).
+            up    = top    ? current[j] : above[j]
+            down  = bottom ? current[j] : T[i + 1, j]
+            left  = (j == 1)  ? current[j] : current[j - 1]
+            right = (j == nx) ? current[j] : current[j + 1]
+
+            T[i, j] = c * current[j] + r * (up + down + left + right)
+        end
+
+        # Old row i becomes the "row above" for the next iteration.
+        above, current = current, above
+    end
+    return T
+end
+```
+
+## 1. Von Neumann stability condition in 2D
+
+The scheme is forward Euler in time, centered differences in space:
+
+    T[i,j]^(n+1) = T[i,j]^n + r * (T[i-1,j]^n + T[i+1,j]^n + T[i,j-1]^n + T[i,j+1]^n - 4*T[i,j]^n)
+
+with `r = kappa*dt/dx^2`. The von Neumann method tracks one Fourier mode of the error on an infinite (or periodic) grid:
+
+    T[i,j]^n = G^n * exp(I*(i*theta_x + j*theta_y)),   theta_x = k_x*dx, theta_y = k_y*dx
+
+Every index shift multiplies the mode by a phase, so substituting and dividing by `G^n` gives the amplification factor per step:
+
+    G = 1 + r*(e^(I*theta_x) + e^(-I*theta_x) + e^(I*theta_y) + e^(-I*theta_y) - 4)
+      = 1 + 2r*(cos(theta_x) + cos(theta_y) - 2)
+      = 1 - 4r*(sin^2(theta_x/2) + sin^2(theta_y/2))
+
+Stability requires `|G| <= 1` for every mode the grid can carry. `G` is real, and since `r > 0` and the sine terms are non-negative, `G <= 1` always holds (smooth modes decay; the constant mode has `G = 1`, which is correct for zero flux: nothing can change the mean). The binding constraint is `G >= -1`, worst case when both sines equal 1, i.e. `theta_x = theta_y = pi`: the mode that alternates sign every cell in both directions (the checkerboard, present on any grid with at least two cells per direction). Then:
+
+    G_min = 1 - 8r >= -1   <=>   r <= 1/4   <=>   kappa*dt/dx^2 <= 1/4   <=>   dt <= dx^2 / (4*kappa)
+
+Two remarks, to be honest about the limits of the argument:
+
+- Von Neumann analysis is exact for periodic/infinite grids. With Neumann walls the eigenmodes are cosines instead of complex exponentials, but the mirror-ghost Laplacian has all eigenvalues in `[-8/dx^2, 0]` (Gershgorin: row sums are zero, diagonal at most `-4/dx^2` per direction), so `I + dt*kappa*L` has all eigenvalues in `[-1, 1]` exactly when `dt <= dx^2/(4*kappa)`. The bound is sufficient, and sharp up to the small extra damping the walls give the checkerboard.
+- `r <= 1/4` is equivalent to all five stencil weights `(1-4r, r, r, r, r)` being non-negative, i.e. the new value is a convex combination of the old neighbourhood. That is the discrete maximum principle: no point can exceed the old maximum or drop below the old minimum. This is the practical meaning of the bound, not a technicality.
+
+With different spacings per axis the condition generalizes to `dt*(kappa_x/dx^2 + kappa_y/dy^2) <= 1/2`; with `dx = dy` and one `kappa` it reduces to `dt <= dx^2/(4*kappa)`. In `d` dimensions with equal spacing: `dt <= dx^2 / (2*d*kappa)`.
+
+## 2. What changes in 3D
+
+- Stencil: 7 points instead of 5 (adds `T[i,j,k±1]`), update weights `(1-6r, r, ..., r)` with `r = kappa*dt/dx^2`. The code change is mechanical; the two row buffers become two plane buffers (`O(nx*ny)` extra memory).
+- Bound: `G = 1 - 4r*(sin^2(theta_x/2) + sin^2(theta_y/2) + sin^2(theta_z/2))`, worst case `G = 1 - 12r`, so `G >= -1` gives `r <= 1/6`, i.e. `dt <= dx^2/(6*kappa)`. The reason is that each new direction adds a second difference whose extreme mode can alternate at the same time as the others: the largest eigenvalue of the discrete Laplacian grows like `4*d/dx^2`, and the allowed `dt` shrinks like `1/(2*d)`.
+- Cost: at the same `dx` and `kappa` you need 4/6 = 1.5 times more steps than in 2D, and each step has more points and more work per point. Total work to reach a fixed physical time scales like `dx^(-(d+2))`: halving `dx` costs 16x in 2D and 32x in 3D. That end-to-end price, not the per-step cost, is why 3D diffusion is usually solved with implicit methods (backward Euler, Crank-Nicolson: unconditionally stable, one linear solve per step) or ADI.
+
+## 3. What happens numerically when the condition is violated
+
+For `r > 1/4` the center weight `1 - 4r` goes negative: the update stops being an average of neighbours and becomes partly subtractive. Consequences, in order of appearance:
+
+- The checkerboard mode has `|G| = |1 - 8r| > 1` and grows geometrically: `r = 0.26` gives x1.08 per step, `r = 0.3` gives x1.4, `r = 0.5` gives x3. Roundoff seeds this mode everywhere at about 1e-16 relative level, so the growth always materializes: with `r = 0.3`, `1e-16 * 1.4^n` reaches order 1 after roughly 100 steps, then Inf, then NaN.
+- Visually: a fine two-cell sawtooth appears, sign alternating between neighbouring cells and between consecutive timesteps, amplitude growing step by step. Long-wavelength components still behave for a while (a mode with combined sine power `s` stays stable until `r > 1/(2s)`), so the first steps look fine and the blow-up seems sudden. It is not roundoff's fault: the update matrix has eigenvalues outside the unit circle; the discrete problem itself is unstable, and consistency does not help (Lax: convergence needs stability).
+- A detail worth knowing: even in the unstable regime the scheme still conserves `sum(T)` exactly, because the zero-flux discrete Laplacian has zero column sums. The mean stays right while everything blows up around it.
+- At exactly `r = 1/4` the scheme is stable but the checkerboard has `G = -1`: it neither grows nor decays, so grid-scale noise persists forever. In practice take `dt` somewhat below the bound (say 0.9 * dx^2/(4*kappa)) so every mode is damped and the maximum principle holds strictly.
+
+## 4. Complexity per timestep
+
+- Time: `O(N)` with `N = nx*ny`. One sweep over the grid, a fixed handful of flops per point (two multiplies plus a few adds). The work is value-independent and bandwidth-bound: about 2 reads + 1 write of 8 bytes per point, ~24N bytes moved. For an explicit method touching all data, `O(N)` per step is optimal.
+- Extra memory: `O(nx)` only (the two row buffers). A full copy of `T` is not needed, because the sweep direction means rows below the current one are still untouched in `T`, and only the just-overwritten row above has to be buffered.
+- End to end: reaching a fixed final time `T_end` needs `T_end/dt = 4*kappa*T_end/dx^2` steps, so total work scales like `O(N/dx^2) = O(dx^-4)` in 2D (`O(dx^-5)` in 3D). This scaling, not the per-step cost, is the weak point of explicit diffusion schemes.
+
+The scheme is first-order in `dt` and second-order in `dx`; with the stability bound respected it is consistent and stable, hence convergent.

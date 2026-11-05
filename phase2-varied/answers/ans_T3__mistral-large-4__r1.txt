@@ -1,0 +1,190 @@
+```julia
+using LinearAlgebra, ChainRulesCore, Test, Random
+
+# A(κ) = I + r L(κ), symmetric tridiagonal:
+#   A[i,i]   = 1 + r*(κ[i] + κ[i-1])   with κ[0] = κ[N] = 0
+#   A[i,i+1] = A[i+1,i] = -r*κ[i]
+function _diffusion_matrix(u_old::AbstractVector, κ::AbstractVector, r::Real)
+    N = length(u_old)
+    @assert N >= 1
+    @assert length(κ) == N - 1
+    T = promote_type(eltype(u_old), eltype(κ), typeof(r))
+    rt = T(r)
+
+    d = ones(T, N)
+    e = Vector{T}(undef, N - 1)
+    @inbounds for j in 1:(N - 1)
+        e[j]      = -rt * κ[j]
+        d[j]     += rt * κ[j]
+        d[j + 1] += rt * κ[j]
+    end
+    return SymTridiagonal(d, e)
+end
+
+function step(u_old::AbstractVector, κ::AbstractVector, r::Real)
+    A = _diffusion_matrix(u_old, κ, r)
+    return A \ u_old
+end
+
+function ChainRulesCore.rrule(::typeof(step),
+                              u_old::AbstractVector{<:Real},
+                              κ::AbstractVector{<:Real},
+                              r::Real)
+    A = _diffusion_matrix(u_old, κ, r)
+    F = factorize(A)                 # O(N) structured factorization
+    y = F \ u_old                    # primal solve
+
+    N = length(u_old)
+    T = promote_type(eltype(u_old), eltype(κ), typeof(r))
+    rt = T(r)
+
+    function step_pullback(ȳ)
+        λ = F \ ȳ                    # adjoint solve, reuses F, O(N)
+        u_bar = λ
+
+        κ_bar = Vector{T}(undef, N - 1)
+        @inbounds for j in 1:(N - 1)
+            κ_bar[j] = -rt * (λ[j] - λ[j + 1]) * (y[j] - y[j + 1])
+        end
+
+        return NoTangent(), u_bar, κ_bar, NoTangent()
+    end
+
+    return y, step_pullback
+end
+
+@testset "implicit diffusion rrule" begin
+    Random.seed!(123)
+    N = 8
+    u = randn(N)
+    κ = rand(N - 1) .+ 0.5
+    r = 0.7
+    w = randn(N)                     # scalar projection p = w ⋅ step(u, κ, r)
+
+    y, pb = rrule(step, u, κ, r)
+    _, u_bar, κ_bar, r_bar = pb(w)
+
+    @test y == step(u, κ, r)
+    @test r_bar isa NoTangent
+
+    eps = 1e-6
+    for i in 1:N
+        up = copy(u); up[i] += eps
+        um = copy(u); um[i] -= eps
+        fd = (dot(w, step(up, κ, r)) - dot(w, step(um, κ, r))) / (2eps)
+        @test fd ≈ u_bar[i] atol = 1e-5
+    end
+
+    for j in 1:(N - 1)
+        kp = copy(κ); kp[j] += eps
+        km = copy(κ); km[j] -= eps
+        fd = (dot(w, step(u, kp, r)) - dot(w, step(u, km, r))) / (2eps)
+        @test fd ≈ κ_bar[j] atol = 1e-5
+    end
+
+    # dot-product consistency: <pullback(ȳ), (du,dκ)> == <ȳ, J (du,dκ)>
+    du = randn(N)
+    dκ = randn(N - 1)
+    lhs = dot(u_bar, du) + dot(κ_bar, dκ)
+    fd_dir = (dot(w, step(u + eps * du, κ + eps * dκ, r)) -
+              dot(w, step(u - eps * du, κ - eps * dκ, r))) / (2eps)
+    @test lhs ≈ fd_dir atol = 1e-5
+end
+```
+
+Mathematical derivation of the pullback:
+
+Let
+
+\[
+A(\kappa)=I+rL(\kappa),
+\]
+
+so the forward step is
+
+\[
+y=A(\kappa)^{-1}u .
+\]
+
+Because no-flux boundaries drop the end terms, \(A\) is the symmetric tridiagonal matrix
+
+\[
+A_{ii}=1+r(\kappa_i+\kappa_{i-1}),\quad \kappa_0=\kappa_N=0,
+\]
+
+\[
+A_{i,i+1}=A_{i+1,i}=-r\kappa_i .
+\]
+
+Differentiate the identity \(A y=u\):
+
+\[
+dA\,y + A\,dy = du
+\quad\Rightarrow\quad
+dy = A^{-1}(du-dA\,y).
+\]
+
+Let \(\bar y\) be the incoming output cotangent. Define the adjoint variable
+
+\[
+\lambda = A^{-T}\bar y .
+\]
+
+Since \(A\) is real symmetric, \(A^{-T}=A^{-1}\), so one more tridiagonal solve gives
+
+\[
+\bar y^\top dy
+=
+\lambda^\top du - \lambda^\top dA\,y .
+\]
+
+Therefore
+
+\[
+\bar u = \lambda .
+\]
+
+For \(\kappa\), \(dA=r\,dL(\kappa)\). On face \(j\), the \(2\times2\) block of \(dL/d\kappa_j\) acting on rows/columns \((j,j+1)\) is
+
+\[
+\begin{pmatrix}
+1 & -1\\
+-1 & 1
+\end{pmatrix},
+\]
+
+so
+
+\[
+\lambda^\top dA\,y
+=
+r\sum_{j=1}^{N-1} d\kappa_j\,
+(\lambda_j-\lambda_{j+1})(y_j-y_{j+1}).
+\]
+
+Hence
+
+\[
+\bar\kappa_j
+=
+-r(\lambda_j-\lambda_{j+1})(y_j-y_{j+1}),
+\]
+
+and by requirement
+
+\[
+\bar r = \text{NoTangent()}.
+\]
+
+Reusing the factorization is valid: in reverse mode the primal point \((\kappa,u)\) is fixed, and the pullback only needs \(A^{-1}\) applied to \(\bar y\). We do not differentiate the factorization; differentiating through it would be unnecessary and would not be the correct first-order adjoint.
+
+Edge cases:
+
+- Negative \(\kappa_j\): algebraically the formula still holds if \(A\) is nonsingular, but \(I+rL\) may become indefinite or singular. `SymTridiagonal` assumes symmetry and uses an LDL-style factorization without general pivoting, so a zero pivot can fail even if the matrix is technically invertible. For guaranteed sign-varying \(\kappa\), use a general `Tridiagonal` factorization with pivoting.
+- \(\kappa_j=0\): that face decouples; \(A\) still has diagonal entries at least \(1\), so the solve remains well-posed.
+- \(N=1\): then \(\kappa\) is empty, \(A=[1]\), `step` returns `u_old`, and \(\bar\kappa\) is empty.
+- \(r=0\): \(A=I\), \(y=u\), and the formula gives \(\bar\kappa=0\). The spec still returns `NoTangent()` for `r`; if `r` were differentiated, one would get \(\bar r=-\lambda^\top L y\).
+- Type stability: the code promotes to `T = promote_type(eltype(u), eltype(κ), typeof(r))` and uses concrete `Vector{T}` buffers. With abstract `AbstractVector` inputs the entry point is less type-stable; use concrete `Vector{T}` in hot loops.
+- Float32: supported if all inputs are Float32, since the promoted type stays Float32 and the tridiagonal factorization has Float32 paths. Mixing Float32 state with Float64 `r` promotes to Float64. Finite-difference checks should be run in Float64 with `eps` around `1e-6`; for Float32 use a larger `eps`.
+- Complex or non-real \(\kappa\): not handled by `SymTridiagonal` as written; use a general complex `Tridiagonal` solve and \(A^{-T}\) instead of \(A^{-1}\).
+- Dimension contract: requires `length(u) >= 1` and `length(κ) == length(u) - 1`; violations are caught by the `@assert`s.

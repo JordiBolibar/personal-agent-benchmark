@@ -1,0 +1,86 @@
+## 1. Volume response time τ_V = H/(−b_t)
+
+Start from the lumped ice-equivalent budget of the whole glacier:
+
+- dV/dt = B(t) = ∫b dA, with V = H·A (mean thickness times area). Steady state: B = 0.
+- After a step change to a warmer climate, assume the area-averaged specific balance of the ice still to be lost is ⟨b⟩ ≈ b_t (the terminus value): the ablation zone dominates the integrated deficit (Jóhanneson, Raymond & Waddington 1989).
+- Assume self-similar retreat, so the remaining deficit is proportional to the remaining excess thickness: ⟨b(t)⟩ = b_t · (δH/H), where δH = H − H_steady,new.
+- Then dδH/dt = b_t δH/H, i.e. exponential relaxation with
+
+**τ_V = H/(−b_t) = 150 m / 5 m a⁻¹ = 30 a.**
+
+Intuition: the time to melt one full ice column at the terminus melt rate.
+
+Assumptions (all of them):
+1. All balances in ice equivalent; constant density; volume changes only via surface balance (no calving, no basal melt anomalies).
+2. Step change to a new, constant climate; the balance–elevation profile only shifts; no elevation feedback (deferred to §3).
+3. ⟨b⟩ ≈ b_t, and b_t stays −5 m a⁻¹ as the terminus moves.
+4. Shape-preserving adjustment: area, shape and H ≈ 150 m stay fixed over one e-fold.
+5. Dynamics are not the bottleneck (checked in §2).
+6. Linear perturbation regime.
+7. No sliding change, constant rheology, fixed bed.
+
+Note what is absent: τ_V contains no L, β, n or flow factor. It holds only as long as assumptions 3–5 hold, and it is a *volume* scale: the full geometry (length) adjustment is much slower (§2).
+
+## 2. Kinematic wave speed; advective and diffusive time scales
+
+SIA flux per unit width (1-D, slope s = −∂S/∂x):
+
+q = (2A/(n+2)) (ρg)ⁿ H^(n+2) sⁿ
+
+Continuity, with q = q(H, s):
+
+∂H/∂t + c ∂H/∂x − D ∂²H/∂x² = b,  c = ∂q/∂H = (n+2) q/H,  D = ∂q/∂s = n q/s
+
+Why c > mean ice speed: the wave travels at the *marginal* flux gain per added metre of thickness. Since q ∝ H^(n+2), a locally thickened patch carries proportionally more flux (its velocity also rises, u ∝ H^(n+1)); the wave rides this excess discharge, giving c = (n+2)ū. Ice parcels move slower and pass through the wave.
+
+Numbers (deformation-only, no basal sliding): u_s/ū = (n+2)/(n+1) = 5/4, so ū = 32 m a⁻¹, q = ū·H = 4.8×10³ m² a⁻¹, c = 5 × 32 = 160 m a⁻¹ ≈ 4 u_s. (With plug sliding c → ū ≈ u_s; 160 m a⁻¹ is the deformation-only upper end.)
+
+**τ_kin = L/c = 6000/160 ≈ 38 a.** Comparable to τ_V: the wave crosses the glacier in about one melt time, so dynamics can roughly keep pace (validates §1, assumption 5).
+
+Diffusivity needs a slope, not given. Estimate:
+- Balance data: b = 0 at the ELA, i.e. 5/0.007 ≈ 714 m above the terminus, so the mean slope must be at least 714/6000 ≈ 0.12; ~0.24 if the ELA is mid-glacier.
+- Driving stress: τ_d = ρgH s; with s ≈ 0.15, τ_d ≈ 0.2 MPa (steep but plausible valley glacier), implying surface drop ~900 m ⊇ ELA relief.
+- Cross-check: with s ≈ 0.15 and u_s = 40 m a⁻¹, the implied rate factor A ≈ 6×10⁻¹⁷ Pa⁻³ a⁻¹, i.e. normal temperate ice. Consistent.
+
+So take **D = n q/s = 3 × 4800 / 0.15 ≈ 1×10⁵ m² a⁻¹** (range (0.5–2)×10⁵ for s = 0.1–0.3):
+
+**τ_diff = L²/D = (6×10³)²/10⁵ ≈ 3.7×10² ≈ 4×10² a** (range ~250–600 a).
+
+Ranking: τ_V ≈ 30 a ≈ τ_kin ≈ 38 a ≪ τ_D ≈ 4×10² a. Since D < cL (~10×), diffusion — not advection — sets the pace of profile/length adjustment.
+
+## 3. Elevation feedback and the effective response time
+
+Linear model for the mean thickness anomaly δH (fixed bed and shape, so ∂S/∂t = ∂H/∂t; balance linear with β and fixed ELA). Two competing terms in the balance anomaly:
+
+- dynamic damping from §1: −δH/τ_V,
+- surface feedback, from ∂b/∂t = β ∂S/∂t: +β δH,
+- climate forcing: a (< 0 for warming, m a⁻¹).
+
+dδH/dt = a − (1/τ_V − β) δH → **τ_eff = 1/(1/τ_V − β) = τ_V/(1 − β τ_V)**, and the steady response to forcing a is amplified by (1 − βτ_V)⁻¹.
+
+Numbers: βτ_V = 0.007 × 30 = 0.21 → **τ_eff = 30/0.79 ≈ 38 a** (+27%), amplification ≈ 1.27. The feedback alone would grow on 1/β ≈ 143 a; the damping (30 a) acts faster, so the feedback only stretches, never dominates.
+
+Runaway condition: β > 1/τ_V ⟺ βH > −b_t ⟺ the balance gained by lifting the whole surface by one ice thickness (βH = 1.05 m a⁻¹) exceeds the terminus ablation (5 m a⁻¹). Here 0.21 < 1: stable with a ~5× margin. At β ≥ 1/τ_V the eigenvalue β − 1/τ_V flips sign: both growth and loss anomalies self-amplify (runaway growth or runaway loss).
+
+Why bed slope and geometry changes matter:
+1. The damping 1/τ_V is itself dynamic: SIA discharge grows ∝ sⁿ H^(n+2). A steep bed drains excess thickness fast (large c and D → short τ_V → stable). On a flat bed the stabilizing discharge vanishes with the slope, and the β feedback can dominate — the classic flat-bed runaway.
+2. The feedback assumed δS = δH at fixed geometry. On a sloping bed this is wrong: retreat moves the terminus up the bed (the ice surface drops less than δH, weakening loss feedback), advance moves it down (limiting growth feedback).
+3. Area and hypsometry change as extent changes, reweighting where β applies. The real criterion is β_eff(geometry) < 1/τ_dyn(geometry), and both sides evolve, so stability can flip mid-evolution.
+
+## 4. Bias when inverting a flow parameter from 10 years of dH/dt
+
+Mechanism. At the start of the window the glacier is not in steady state: it still carries excess thickness δH₀ relative to its current climate and keeps thinning at ≈ δH₀/τ_eff no matter what the window climate does. With τ_eff ≈ 38 a and a 10-year window, this memory term decays only by e^(−10/38) ≈ 0.77: three quarters of it survives the whole window. Example: δH₀ = 10 m → ~0.25–0.3 m a⁻¹ of memory thinning, comparable to typical observed mean dH/dt (order −0.5 m a⁻¹). A steady-state-initialized model has no memory term, so this negative rate is unexplained and gets absorbed by the flow parameter — pushed in the direction that thins faster under the given forcing (faster dynamic drawdown, and via the §3 feedback, lower surface → more melt).
+
+Sign for a genuinely retreating glacier: extra negative memory → the inferred parameter is biased toward **too soft / too fast** — creep rate factor A too high, or sliding coefficient too high, i.e. effective viscosity too low (a compensating error: the model then projects future retreat too fast; an advancing-from-memory glacier would bias the other way).
+
+Two practical ways to reduce the bias:
+1. Transient spin-up with reconstructed forcing: replace the steady assumption with a hindcast driven by observed/reconstructed climate (temperature, records) started from a documented near-steady epoch (e.g., the 1970s–80s or the LIA maximum), so the model state at t₀ already carries the committed imbalance. The window no longer needs the parameter to explain the drift.
+2. Make the initial state a joint unknown and/or pin the parameter independently: invert a correction to the initial geometry or flux-divergence field together with the flow parameter; add observations that constrain the parameter directly (surface velocities at t₀ are best: they constrain A/sliding through deformation, not through the thinning residual); use earlier DEMs/geodetic differences to extend the window backwards into the memory era.
+
+With 10 a of data and τ_eff ≈ 38 a, no parameter tuning can reconstruct the missing state — it can only trade errors. The fix must come from initialization or data.
+
+Summary for this glacier:
+- The dominant scale is the volume/kinematic pair: τ_V ≈ 30 a (τ_eff ≈ 38 a with the elevation feedback) and τ_kin ≈ 38 a — they set how fast volume and thickness follow the climate, and they agree.
+- The diffusive timescale τ_D ≈ 4×10² a is far longer and only sets the slow tail: full shape and length adjustment, i.e., committed loss beyond the observable decades.
+- In practice the ~30–40 a scale matters most: a 10-year dH/dt record spans only a quarter of it, so most of what is observed is delayed history, not the current climate.

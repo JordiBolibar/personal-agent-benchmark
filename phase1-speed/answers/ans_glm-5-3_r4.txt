@@ -1,0 +1,113 @@
+```julia
+"""
+    heat_step!(T::Matrix{Float64}, kappa::Float64, dt::Float64, dx::Float64)
+
+Advance the 2D temperature field `T` (size `(ny, nx)`, one row per y, one
+column per x) by one explicit Euler step of the heat equation
+
+    dT/dt = kappa * (d²T/dx² + d²T/dy²)
+
+on a uniform grid with the same spacing `dx` in both directions.
+
+Boundary conditions: Neumann, zero flux. A neighbour that falls outside
+the grid is replaced by the boundary value itself (ghost cell = boundary
+cell). With this choice the discrete Laplacian sums to zero over the grid,
+so the mean of `T` is preserved exactly, as the PDE says it should be.
+
+Stability: the scheme is stable only when kappa*dt/dx² <= 1/4. A warning
+is printed if this is violated, but the step is still taken.
+
+`T` is updated in place and also returned.
+"""
+function heat_step!(T::Matrix{Float64}, kappa::Float64, dt::Float64, dx::Float64)
+    ny, nx = size(T)
+    r = kappa * dt / (dx * dx)
+
+    if r > 0.25
+        @warn "heat_step!: unstable step, r = kappa*dt/dx^2 = $r > 1/4 (need dt <= dx^2/(4*kappa))"
+    end
+
+    # Every new point needs the OLD values of its neighbours, so work on a
+    # copy. Writing straight into T would mix old and new values and give
+    # a different (Gauss-Seidel-like) scheme.
+    Told = copy(T)
+
+    @inbounds for j in 1:nx, i in 1:ny       # i inner: cache-friendly, Julia is column-major
+        # Zero-flux boundaries: clamp the neighbour index to the grid,
+        # i.e. an outside neighbour equals the boundary point itself.
+        im = (i > 1)  ? i - 1 : i            # neighbour in -y
+        ip = (i < ny) ? i + 1 : i            # neighbour in +y
+        jm = (j > 1)  ? j - 1 : j            # neighbour in -x
+        jp = (j < nx) ? j + 1 : j            # neighbour in +x
+
+        T[i, j] = Told[i, j] +
+                  r * (Told[im, j] + Told[ip, j] + Told[i, jm] + Told[i, jp] -
+                       4.0 * Told[i, j])
+    end
+
+    return T
+end
+```
+
+**The scheme.** Forward Euler in time, second-order 5-point Laplacian in space. For an interior point:
+
+T^(n+1)[i,j] = T^n[i,j] + r * (T^n[i+1,j] + T^n[i-1,j] + T^n[i,j+1] + T^n[i,j-1] - 4*T^n[i,j]),  with r = kappa*dt/dx².
+
+The scheme is first order in dt and second order in dx. Boundaries use clamped indices, which is the discrete form of zero flux.
+
+**1. Von Neumann stability in 2D**
+
+Look at one Fourier mode on the infinite grid, T^n[i,j] = ξ^n · e^(I·(θx·i + θy·j)), where I = √-1 and θx = kx·dx, θy = ky·dx are the phase shifts per cell. ξ is the amplification factor per step: the scheme is stable if |ξ| ≤ 1 for every mode.
+
+A shift by one cell multiplies the mode by e^(±I·θx) or e^(±I·θy). Substituting the mode into the scheme and dividing by the mode:
+
+ξ = 1 + r·(e^(I·θx) + e^(-I·θx) + e^(I·θy) + e^(-I·θy) - 4)
+  = 1 + 2r·(cos θx + cos θy - 2)
+  = 1 - 4r·(sin²(θx/2) + sin²(θy/2)),
+
+using cos θ = 1 - 2·sin²(θ/2). Call the sine sum S. It ranges from 0 to 2, and its maximum S = 2 is reached at θx = θy = π: the 2-pixel checkerboard, the highest frequency the grid can represent.
+
+Now require |ξ| ≤ 1:
+- ξ ≤ 1 always holds, because r ≥ 0 and ξ = 1 - 4rS.
+- ξ ≥ -1 must hold for the worst mode, S = 2:  1 - 8r ≥ -1, so r ≤ 1/4.
+
+So the condition is r = kappa·dt/dx² ≤ 1/4, that is:
+
+**dt ≤ dx² / (4·kappa)**
+
+Two remarks. First, at r ≤ 1/4 the new value is a convex combination of the old point and its four neighbours (weights 1-4r, r, r, r, r, all in [0,1] and summing to 1). So the discrete maximum principle holds: no new maxima or minima appear, and steep fronts do not ring. Second, the Fourier analysis is done on an infinite grid; for this scheme with r ≤ 1/4 the maximum principle makes the bound rigorous on the bounded domain too, so the boundary treatment does not lower the limit. (At exactly r = 1/4 the checkerboard has ξ = -1: it does not grow, but it also never decays.)
+
+If dx ≠ dy, with rx = kappa·dt/dx² and ry = kappa·dt/dy², the condition becomes rx + ry ≤ 1/2, i.e. dt ≤ 1 / (2·kappa·(1/dx² + 1/dy²)).
+
+**2. What changes in 3D**
+
+Three things:
+- The stencil grows from 5 to 7 points: two extra neighbours in z, and the weight on the centre becomes 6 instead of 4. The code change is mechanical: one more loop level, two more neighbour reads.
+- The amplification factor becomes ξ = 1 - 4r·(sin²(θx/2) + sin²(θy/2) + sin²(θz/2)). The sine sum now reaches 3 (at θx = θy = θz = π), so stability needs r ≤ 1/6:
+
+  **dt ≤ dx² / (6·kappa)**
+
+- The general rule in d dimensions is dt ≤ dx² / (2·d·kappa): each new dimension adds one more direction for heat to leak in a single step, so the allowed step shrinks: dx²/(2κ) in 1D, dx²/(4κ) in 2D, dx²/(6κ) in 3D. This is also why explicit diffusion gets less attractive as dimension grows: the step shrinks while an implicit or split solve (Crank-Nicolson, ADI) gets only mildly more expensive per step.
+
+**3. What happens numerically when the condition is violated**
+
+For r > 1/4 the checkerboard mode has ξ = 1 - 8r < -1. Every step multiplies its amplitude by |ξ| = 8r - 1 > 1 and flips its sign. Concretely:
+
+- You see pixel-level checkerboard noise that alternates bright/dark each step and grows geometrically, like (8r-1)^n. Roundoff error contains every frequency, so the unstable mode is always seeded, even from a perfectly smooth start. The end state is overflow: Inf first, then NaN spreading over the grid.
+- The blow-up can be slow and sneaky. At r = 0.26 the growth factor per step is only 1.08: the run can look fine for hundreds of steps and still explode later. That is why the function warns instead of staying silent.
+- For 1/4 < r ≤ 1/2 only mixed high-frequency modes (S > 1/(2r)) grow; for r > 1/2 even a pure single-direction checkerboard (θx = π, θy = 0) grows. In every case the discrete energy ∑T² grows without bound.
+- This is a stability failure, not an accuracy failure. The scheme is still consistent: its local error is O(dt) + O(dx²). The PDE solution is smooth and decaying while the discrete one diverges.
+- Two details worth knowing. With the zero-flux boundaries used here, the mean of T stays exact even during blow-up (the discrete Laplacian sums to zero), so all the growth is oscillation around a constant mean. And refining the grid makes it worse if dt is kept: r ∝ 1/dx², so halving dx without cutting dt by 4 pushes you deeper into instability. Stability must be re-checked every time dx changes.
+
+**4. Computational complexity per timestep**
+
+- Time: Θ(nx·ny). One pass over the grid, O(1) work per point: 4 neighbour reads, about 10 flops. No global operations, no linear solve. The cost per step does not depend on kappa, dt or dx.
+- Memory: Θ(nx·ny) traffic (5 reads + 1 write per point), plus one Θ(N) allocation for the copy on every call. For production use, pass a preallocated buffer or alternate between two matrices; then the allocation disappears.
+
+To march to a fixed physical time T_end you need T_end/dt steps, and dt ∝ dx², so the total work grows roughly like N/dx². This quadratic step-count penalty, not the per-step cost, is the real price of explicit diffusion, and the reason implicit schemes are preferred for stiff problems.
+
+**Implementation notes**
+
+- The copy of T is required: forward Euler with a 5-point stencil needs all old neighbours. Overwriting in place with one buffer would mix old and new values and silently change the method (a Gauss-Seidel variant, direction-dependent and with different stability).
+- The boundary convention here is "ghost cell = boundary cell", zero flux across the face just outside the boundary point. The other common choice is the mirror ghost (T_ghost = T of the second point), which puts zero flux exactly on the boundary grid point. Both are called zero-flux, both keep the same stability bound; the clamped one used here has the nice property that it preserves the mean of T exactly.
+- The function assumes dx = dy (only dx is passed). For a rectangular grid with dx ≠ dy, use rx and ry as in section 1 and clamp each direction with its own spacing.

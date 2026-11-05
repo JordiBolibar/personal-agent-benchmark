@@ -1,0 +1,33 @@
+**1. Target**
+
+Use `SIA2D_D_hybrid`; run `SIA2D_A_target` as a cheap baseline; drop `SIA2D_D_pure`.
+
+- `SIA2D_A_target` learns only Glen's rate factor A. Inputs for the Lux net: normalized thickness `H/H_ref`, surface slope `|∇s|/s_ref`, plus an elevation or temperature proxy so A can vary across glaciers. It assumes n=3 and the Glen form. It can identify how stiff the ice is, not whether the flow law has the right shape.
+- `SIA2D_D_hybrid` keeps the physical diffusivity and multiplies it by a bounded UDE correction (I believe the hybrid multiplies the physical D; check the exact form in Huginn). Same inputs as above. It can identify systematic deviations from Glen (sliding, wrong n) lumped into D. It gives up the separation: nothing tells you if the correction is n, temperature, or basal slip.
+- `SIA2D_D_pure` fits any curve locally, but with thickness gaps and only 3 velocity years it is badly under-constrained and extrapolates without control. Gives up all physics.
+
+Physical output: positivity through `softplus`/`exp` plus a reference scale (`A ~ 2.4e-24 Pa^-3 s^-1`, so a factor model around 1 is safest). Clip or bound the network output, otherwise the optimizer explores absurd diffusivities during early iterations.
+
+**2. Gradient**
+
+Use `EnzymeVJP` for the real runs: fastest, works with in-place `SIA2D!`, and the ODINN tests cover it. Cost: every change to the law or loss must stay Enzyme-compatible (no hidden mutations, no type instability). `DiscreteVJP` (Mooncake) is safer for exploration: no Enzyme annotations needed, but slower per epoch (I am not sure of its current coverage in the ODINN test suite). `ContinuousVJP` and the `sensealg` route with `optim_autoAD` in `UDEparameters` solve the continuous adjoint of the PDE; this saves memory but is inaccurate for stiff, small-timestep SIA problems — I would not use it here (I am unsure of the exact `sensealg` options worth naming).
+
+Validation before a long run: build a small single-glacier, 1-2 year problem, then (a) compare the VJP gradient against central finite differences on a few parameters, (b) compare EnzymeVJP and DiscreteVJP against each other, (c) run 2-3 optimizer iterations and check the loss decreases smoothly. Cosine similarity above ~0.99 between backends is a good pass.
+
+**3. Loss**
+
+`MultiLoss` with `LossH` at every observation time and `LossV` only at the 3 velocity years. This is clean with a discrete adjoint: the velocity term simply contributes zero gradient at other solve steps. Normalize each term by its data scale (thickness by a reference thickness, speed by a mean speed) so units do not decide the weighting; multiply by explicit weights and record them, because they change what the law fits.
+
+Gaps: mask cells and times with no data; never let missing values enter the loss as zeros. Margins: near `H→0` the diffusivity vanishes and speed gradients get large; if you weight margin cells equally, they dominate with noise. Also avoid normalizations that divide by H (NaN/Inf). Exclude or downweight margin cells.
+
+**4. Mass balance**
+
+Pick the calibrated `TImodel1` via `calibrate_MB_model` as the working model: its errors are physically bounded and easy to reason about. The frozen `CustomMLP` may fit point observations better, but its spatial error structure is unknown, and any structured MB error is exactly what the learned law absorbs: too-positive MB makes the learned law too diffusive to shed mass. Detection: train with both MB models on the same data and compare the learned components; if they disagree strongly, the law is absorbing MB error. Also check the learned rate factor or hybrid correction against physical ranges (temperate alpine ice roughly an A between ~1e-25 and ~4e-24), and look at correlations between UDE output and MB residuals.
+
+**5. Top three AD pitfalls**
+
+1. Mutating caches (`SIA2D!` writing into `SIA2DCache`, MB updates in-place). A cache write that AD misses gives silently wrong gradients, not an error. Register caches as Enzyme duplicates and check with the VJP cross-comparison above.
+2. `@ignore_derivatives` hiding trainable paths. Correct on the frozen MB MLP (it has no gradient w.r.t. UDE parameters); wrong if it cos the law itself, which silently zeroes gradients.
+3. Non-smooth masking and value-dependent branches: `H .> 0` masks, `if` on array values, `max(H, 0)` at the margin. They break the adjoint exactly where the data is hard, so test the margins around these cells.
+
+Uncertainties flagged: exact hybrid formula in Huginn, Mooncake coverage, `sensealg` option names, `MultiLoss` keyword details.

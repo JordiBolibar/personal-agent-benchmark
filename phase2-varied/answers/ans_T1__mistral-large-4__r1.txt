@@ -1,0 +1,135 @@
+## Setup
+
+Forward problem (flat bed, so S = H):
+
+$$\partial_t H = \partial_x F + b(x), \qquad F = \Gamma H^{n+2}\,|H_x|^{n-1} H_x, \qquad \Gamma = \frac{2A(\rho g)^n}{n+2}$$
+
+with $H(0,t)=H(L,t)=0$, $H(x,0)=H_0(x)$, and $J(A)=\frac12\int_0^L (H(x,T)-H_{obs}(x))^2\,dx$.
+
+Write $p = H_x$ and define the partial derivatives of the flux:
+
+$$F_H = \frac{\partial F}{\partial H}, \qquad F_p = \frac{\partial F}{\partial H_x}.$$
+
+---
+
+## 1. Linearization of the flux
+
+Perturb $H \to H + \delta H$, so $H_x \to H_x + \delta H_x$. Keeping every term:
+
+$$\delta F = F_H\,\delta H + F_p\,\delta H_x$$
+
+with
+
+$$F_H = \Gamma (n+2) H^{n+1} |H_x|^{n-1} H_x,$$
+
+$$F_p = \Gamma H^{n+2}\frac{\partial}{\partial p}\big(|p|^{n-1}p\big) = \Gamma H^{n+2}\big[(n-1)|p|^{n-2}\operatorname{sign}(p)\,p + |p|^{n-1}\big] = \Gamma n H^{n+2}|H_x|^{n-1}.$$
+
+Note $F_p = nD$ where $D = \Gamma H^{n+2}|H_x|^{n-1}$ is the diffusivity — the factor $n$ comes from differentiating $|H_x|^{n-1}H_x$ as one object.
+
+The linearized state equation is therefore
+
+$$\partial_t \delta H = \partial_x\big(F_H\,\delta H + F_p\,\delta H_x\big), \qquad \delta H(x,0)=0,\quad \delta H(0,t)=\delta H(L,t)=0$$
+
+($b$ has no $H$-dependence, so it drops out of the linearization; $A$ does not enter $H_0$, so $\delta H(x,0)=0$).
+
+---
+
+## 2. Lagrangian and adjoint PDE
+
+Form the Lagrangian with multiplier $\lambda(x,t)$:
+
+$$\mathcal{L} = J + \int_0^T\!\!\int_0^L \lambda\big(H_t - \partial_x F - b\big)\,dx\,dt.$$
+
+Vary with respect to $H$:
+
+$$\delta \mathcal{L} = \int_0^L (H(T)-H_{obs})\,\delta H(T)\,dx + \int_0^T\!\!\int_0^L \lambda\big(\delta H_t - \partial_x \delta F\big)\,dx\,dt.$$
+
+Integrate by parts in time:
+
+$$\int_0^T \lambda\,\delta H_t\,dt = \big[\lambda\,\delta H\big]_0^T - \int_0^T \lambda_t\,\delta H\,dt = \lambda(T)\delta H(T) - \int_0^T \lambda_t\,\delta H\,dt,$$
+
+using $\delta H(x,0)=0$. Integrate by parts in space twice:
+
+$$-\int_0^L \lambda\,\partial_x\delta F\,dx = -\big[\lambda\,\delta F\big]_0^L + \int_0^L \lambda_x\,\delta F\,dx,$$
+
+$$\int_0^L \lambda_x F_p\,\delta H_x\,dx = \big[\lambda_x F_p\,\delta H\big]_0^L - \int_0^L \partial_x(\lambda_x F_p)\,\delta H\,dx.$$
+
+The term $[\lambda_x F_p \delta H]_0^L$ vanishes because $\delta H = 0$ at $x=0,L$. The term $[\lambda\,\delta F]_0^L = [\lambda(F_H\delta H + F_p\delta H_x)]_0^L$: the $F_H\delta H$ part vanishes by $\delta H=0$, but $\delta H_x$ is **not** zero at the boundary, so we must impose
+
+$$\lambda(0,t) = \lambda(L,t) = 0.$$
+
+Collecting the interior terms:
+
+$$\delta\mathcal{L} = \int_0^L\big[H(T)-H_{obs}+\lambda(T)\big]\delta H(T)\,dx + \int_0^T\!\!\int_0^L\big[-\lambda_t + F_H\lambda_x - \partial_x(F_p\lambda_x)\big]\delta H\,dx\,dt.$$
+
+Setting $\delta\mathcal{L}=0$ for arbitrary $\delta H$ gives:
+
+- interior: $-\lambda_t + F_H\lambda_x - \partial_x(F_p\lambda_x) = 0$,
+- terminal: $\lambda(x,T) = H_{obs}(x) - H(x,T)$,
+- boundary: $\lambda(0,t)=\lambda(L,t)=0$.
+
+So the adjoint PDE is
+
+$$\boxed{-\partial_t\lambda = \partial_x\Big(\Gamma n H^{n+2}|H_x|^{n-1}\,\lambda_x\Big) \;-\; \Gamma(n+2)H^{n+1}|H_x|^{n-1}H_x\,\lambda_x}$$
+
+It is integrated **backward in time**, from the terminal condition at $t=T$ down to $t=0$. With reversed time $\tau = T-t$ it becomes $\partial_\tau\lambda = \partial_x(F_p\lambda_x) - F_H\lambda_x$, a forward (well-posed) parabolic equation in $\tau$. The first term on the right is diffusion with coefficient $F_p = nD$; the second is an advection term with coefficient $-F_H$.
+
+Sanity check: for constant $D$ and $F_H=0$ this reduces to $-\lambda_t = D\lambda_{xx}$, the standard backward heat equation.
+
+---
+
+## 3. Gradient dJ/dA
+
+At the solution of the adjoint equation, $dJ/dA = \partial\mathcal{L}/\partial A$. Only $F$ depends on $A$:
+
+$$\frac{\partial F}{\partial A} = \frac{2(\rho g)^n}{n+2}\,H^{n+2}|H_x|^{n-1}H_x = \frac{F}{A}.$$
+
+Thus
+
+$$\frac{dJ}{dA} = \int_0^T\!\!\int_0^L \lambda\big(-\partial_x F_A\big)\,dx\,dt = -\big[\lambda F_A\big]_0^L + \int_0^T\!\!\int_0^L \lambda_x F_A\,dx\,dt.$$
+
+The boundary term vanishes because $\lambda=0$ at $x=0,L$ (and also $F_A \propto H^{n+2}=0$ there). Hence
+
+$$\boxed{\frac{dJ}{dA} = \frac{2(\rho g)^n}{n+2}\int_0^T\!\!\int_0^L \lambda_x\, H^{n+2}|H_x|^{n-1}H_x\,dx\,dt = \frac{1}{A}\int_0^T\!\!\int_0^L \lambda_x F\,dx\,dt}$$
+
+The gradient uses the **forward** state $H$ (for the coefficients and $F$) and the **adjoint** $\lambda_x$, integrated over the whole space-time domain.
+
+---
+
+## 4. Frozen diffusivity
+
+Suppose someone treats $D = \Gamma H^{n+2}|H_x|^{n-1}$ as a fixed function of $(x,t)$ — i.e. independent of $H$ — when building the adjoint. Then in the linearization the $H$-dependence of the flux is dropped:
+
+$$\delta F \approx D\,\delta H_x \quad(\text{or } nD\,\delta H_x \text{ if the } |H_x|^{n-1}H_x \text{ derivative is kept}),$$
+
+so $F_H$ is set to zero (and $F_p$ may be taken as $D$ instead of $nD$). The adjoint they get is
+
+$$-\partial_t\tilde\lambda = \partial_x\big(D\,\tilde\lambda_x\big) = \partial_x\Big(\Gamma H^{n+2}|H_x|^{n-1}\tilde\lambda_x\Big),$$
+
+with the same terminal/boundary conditions. **Missing terms** relative to the exact adjoint:
+
+- the advection term $-\,\Gamma(n+2)H^{n+1}|H_x|^{n-1}H_x\,\tilde\lambda_x$ (the $F_H\lambda_x$ term), and
+- if $D$ is frozen with respect to $H_x$ as well, the factor $n$ in the diffusion coefficient ($D$ instead of $nD$).
+
+**Is it exact?** It is the *exact* adjoint — and hence the exact gradient — of a **different problem**: the linear frozen-coefficient PDE $\partial_t H = \partial_x(D(x,t)H_x) + b$ with $D(x,t)$ evaluated on the current trajectory and held fixed (a Picard / quasi-linear linearization). It is **not** the exact gradient of the original nonlinear $J(A)$; for the true $J$ it is only an approximation. The error comes precisely from the neglected dependence of $D$ on $H$ (and $H_x$) through the state — i.e. the missing $F_H\lambda_x$ term. In practice this is a common and often acceptable approximation, but it is not a true gradient of $J$, so optimizers that assume exact gradients (e.g. quasi-Newton) get a slightly wrong direction.
+
+---
+
+## 5. Where the derivation needs care
+
+- **Ice margins, $H \to 0$.** The PDE is degenerate parabolic: $D = \Gamma H^{n+2}|H_x|^{n-1} \to 0$, so both the forward equation and the adjoint lose parabolicity at the margin; the flux and $F_p$ vanish but, for a Glen-type profile ($H \sim x^{1/2}$, $H_x \sim x^{-1/2}$ near the margin), $F_H \sim H^{n+1}|H_x|^{n-1}H_x \sim x^{(1-n)/2}$ **diverges** for $n>1$. The adjoint therefore has a singular advection coefficient at the margin. Also $H=0$ at $x=0,L$ is a free-boundary-type degeneracy: if the margin position were allowed to move, extra boundary terms from the moving domain would appear; here the domain is fixed and $\lambda=0$ at the boundaries is the consistent condition. Numerically one must regularize (e.g. clip $H$, use $(H_x^2+\varepsilon^2)^{(n-1)/2}$) — never divide by $H$ or $|H_x|$ raw.
+- **Points with $H_x = 0$** (e.g. the glacier divide). There $|H_x|^{n-1}=0$, so $F_p = \Gamma n H^{n+2}|H_x|^{n-1} \to 0$: the adjoint diffusion degenerates and the equation becomes locally hyperbolic (only the $F_H\lambda_x$ term survives). The absolute value also makes the flux non-smooth at $H_x=0$ for $1<n\le 2$ ($|p|^{n-1}$ is only $C^0$ there; for $n=3$ it is smooth since $|p|^2 p = p^3$), and $\operatorname{sign}(0)$ is undefined — the sign of $H_x$ must be handled consistently across the divide. A regularized modulus $(p^2+\varepsilon^2)^{(n-1)/2}$ removes both issues in practice.
+
+---
+
+## Final equations
+
+**Adjoint PDE** (integrated backward in time, from $t=T$ to $t=0$):
+
+$$-\frac{\partial\lambda}{\partial t} = \frac{\partial}{\partial x}\Big(\Gamma n H^{n+2}|H_x|^{n-1}\frac{\partial\lambda}{\partial x}\Big) - \Gamma(n+2)H^{n+1}|H_x|^{n-1}H_x\,\frac{\partial\lambda}{\partial x}, \quad 0<x<L,\; 0<t<T$$
+
+$$\lambda(x,T) = H_{obs}(x) - H(x,T), \qquad \lambda(0,t) = \lambda(L,t) = 0.$$
+
+**Gradient:**
+
+$$\frac{dJ}{dA} = \frac{2(\rho g)^n}{n+2}\int_0^T\!\!\int_0^L \frac{\partial\lambda}{\partial x}\, H^{n+2}\,|H_x|^{n-1}\,H_x \;dx\,dt.$$

@@ -1,0 +1,108 @@
+## Conventions
+
+The flux law uses the standard SIA coefficient Γ = 2A(ρg)ⁿ/(n+2) (I need this to use A, ρ, g in part 4). Time is in years, since A is given per year. Bed: B_x = −α, base state H = H0 uniform, so the base surface slope is S_x = −α and the base surface gradient is constant.
+
+## 1. Linearization
+
+Base flux: with S_x = −α, |S_x|^(n−1)S_x = −αⁿ, so
+
+**q0 = Γ H0^(n+2) αⁿ > 0** (ice flows downhill, +x).
+
+Perturb: H = H0 + h, S_x = −α + h_x, and expand q(H, S_x) to first order:
+
+- ∂q/∂H = −(n+2)Γ H^(n+1) |S_x|^(n−1) S_x → at the base state: **+c = (n+2)Γ H0^(n+1) αⁿ**
+- ∂q/∂S_x = −Γ H^(n+2) · d/dS_x[|S_x|^(n−1)S_x] = −Γ H^(n+2) · **n**|S_x|^(n−1) → at base: **−D = −nΓ H0^(n+2) α^(n−1)**
+
+The key factor: d/du[|u|^(n−1)u] = n|u|^(n−1). The exponent n on the slope is what produces the n in the diffusivity.
+
+So δq = c·h − D·h_x. Since q0 is uniform, it drops out of q_x, and b has no h-dependence so it also drops:
+
+**h_t + c h_x = D h_xx**, with
+
+- **c = Γ(n+2) H0^(n+1) αⁿ = (n+2)q0/H0 = (n+2)ū** (Nye kinematic wave speed, ū = depth-averaged velocity)
+- **D = Γ n H0^(n+2) α^(n−1) = n·q0/α** (effective diffusivity)
+
+Note: D = n × [Γ H0^(n+2) α^(n−1)]. This is the crux for part 3.
+
+## 2. FTCS scheme and von Neumann analysis
+
+Scheme: h_j^(m+1) = h_j − (ν/2)(h_{j+1} − h_{j−1}) + d(h_{j+1} − 2h_j + h_{j−1}), with d = DΔt/Δx², ν = cΔt/Δx.
+
+Mode h_j^m = G^m e^{ikjΔx}, θ = kΔx:
+
+**G = 1 − iν sinθ − 4d sin²(θ/2) = 1 − iν sinθ − 2d(1 − cosθ)**
+
+With s = sin²(θ/2) ∈ [0,1] and sin²θ = 4s(1−s):
+
+|G|² = (1 − 4ds)² + 4ν²s(1−s) = 1 + (4ν² − 8d)s + (16d² − 4ν²)s²
+
+Stability (|G| ≤ 1 for all θ) needs the bracket (4ν²−8d)s + (16d²−4ν²)s² ≤ 0 on [0,1]:
+
+- s → 0 (long waves): need 4ν² − 8d ≤ 0 → **ν² ≤ 2d** (necessary)
+- s = 1 (θ = π): need (1−4d)² ≤ 1 → **d ≤ 1/2** (necessary)
+- Sufficiency: if 16d² − 4ν² ≤ 0 both terms are ≤ 0. If 16d² − 4ν² > 0, the quadratic is convex, so its maximum on [0,1] is at an endpoint: 0 and 8d(2d−1) ≤ 0 by d ≤ 1/2. So the two conditions are also sufficient.
+
+**Exact conditions:**
+
+Δt ≤ Δx²/(2D)   and   Δt ≤ 2D/c²   →   **Δt ≤ min(Δx²/(2D), 2D/c²)**
+
+Corollaries:
+- Pure advection (D → 0): never stable. FTCS advection is unconditionally unstable; the scheme survives only because diffusion damps the advective growth.
+- The pair implies ν ≤ 1, i.e. the CFL Δt ≤ Δx/c comes for free.
+- Which of the two binds is decided by the cell Péclet number Pe = cΔx/(2D): if Pe ≤ 1 the diffusion limit controls.
+
+## 3. Is Δt ≤ Δx²/(2 D_max) with D = ΓH^(n+2)|S_x|^(n−1) sufficient?
+
+**No, for two independent reasons.**
+
+1. **Wrong diffusivity by a factor n.** The linearized diffusivity is nD, not D, because d/du[|u|^(n−1)u] = n|u|^(n−1). A rule built on D (no n) gives a Δt that is n times too large. For n = 3: 3× too large. The correct 1D rule is Δt ≤ Δx²/(2 n D_max). Only for n = 1 is the quoted rule exact.
+2. **The advective condition is missing.** The rule only encodes the θ = π mode. The centered advection term adds ν² ≤ 2d; wherever Pe = cΔx/(2nD_max... (2D_eff)) exceeds 1, that condition binds before the diffusion one and the rule fails even with the n fixed.
+
+For SIA on realistic ice, Pe = (n+2)αΔx/(2nH0) ≪ 1 almost everywhere, so in practice error 1 is the one that bites. A safety factor of 10–20% does not cover a systematic factor 3.
+
+## 4. Numbers (n=3, A=7.57×10⁻¹⁷ Pa⁻³a⁻¹, ρg=8829 Pa/m, H0=200 m, α=0.1, Δx=100 m)
+
+Γ = 2A(ρg)³/5 = 2.08×10⁻⁵ m⁻³a⁻¹; H0⁵ = 3.2×10¹¹; chain: q0 = ΓH0⁵α³, c = 5ΓH0⁴α³, D_code = ΓH0⁵α², D_eff = 3D_code, Pe = (5/6)·(αΔx/H0) = 0.0417.
+
+| Quantity | Formula | Value |
+|---|---|---|
+| Γ | 2A(ρg)ⁿ/(n+2) | 2.08×10⁻⁵ m⁻³ a⁻¹ |
+| q0 | ΓH0⁵α³ | 6.67×10³ m² a⁻¹ (ū = 33.3 m/a) |
+| c | (n+2)ū | 167 m/a |
+| D (code definition) | ΓH0⁵α² | 6.67×10⁴ m²/a |
+| D_eff | n·D | 2.00×10⁵ m²/a |
+| Pe_cell | cΔx/(2D_eff) | 0.042 |
+| Common rule | Δx²/(2D) | 0.0750 a = 27.4 d → **unsafe, 3× too large** |
+| Diffusion limit (exact) | Δx²/(2D_eff) | **0.0250 a = 9.1 d ← controls** |
+| Advective limit | 2D_eff/c² | 14.4 a (never binds) |
+| Implied CFL | Δx/c | 0.60 a (never binds) |
+| Donor cell (upwind H) | Δx²/(2D_eff + cΔx) | 0.0240 a = 8.8 d |
+| 2D, slope ∥ x | Δx²/(2(D_∥+D_⊥)) | 0.0187 a = 6.8 d |
+
+**The controlling condition is the diffusion limit with the n-corrected diffusivity: Δt ≈ 9 days.** The advection terms are three orders of magnitude away (Pe ≪ 1). A code following the common rule runs at 27 d and has unstable linear modes.
+
+## 5. 2D staggered grid, and the face-H choice
+
+**2D equation.** q⃗ = −ΓH^(n+2)|∇S|^(n−1)∇S linearizes the same way, about uniform H0 with slope magnitude γ = |∇S0|:
+
+h_t + c⃗·∇h = ∇·(𝔻∇h),  c⃗ = −Γ(n+2)H0^(n+1)γ^(n−1)∇S0 (downhill, |c⃗| = same form as 1D with α → γ),
+
+𝔻 = ΓH0^(n+2)γ^(n−1)[I + (n−1)ĝĝᵀ]: eigenvalue **nD along the slope, D transverse** (D = ΓH0^(n+2)γ^(n−1)). So the factor n acts only along the flow direction; a cross-slope perturbation feels only D.
+
+**What changes for stability:**
+- The diffusion limit becomes a **sum over directions**: Δt ≤ 1/(2(𝔻_xx/Δx² + 𝔻_yy/Δy²)). For slope along x, equal spacing: Δt ≤ Δx²/(2(n+1)D) = 6.8 d here (vs 9.1 d in 1D). The trace (n+1)D does not depend on slope orientation, so this bound is robust for any direction.
+- The staggered arrangement itself (H at nodes, slopes and fluxes at faces, divergence from the 4 face fluxes) reproduces exactly the centered operator when coefficients are uniform — the face means telescope into the standard centered stencils. The tangential slope at a face comes from a 4-node average, a small extra smoothing that only helps. So the 1D von Neumann results carry over with the tensor replacing the scalar D.
+- The advective constraint keeps its structure (long-wave form: Δt ≤ 2/(c_x²/𝔻_xx + c_y²/𝔻_yy)); it almost never binds for ice.
+
+**Face-H choice** (this is what actually changes the discrete operator, because the slope at faces is always centered):
+
+| Scheme (1D form) | G | Stable iff |
+|---|---|---|
+| Centered face H, (H_i+H_j)/2 | 1 − iν sinθ − 4d sin²(θ/2) | d ≤ 1/2 **and** ν² ≤ 2d |
+| Upwind face H (donor node) | 1 − (ν+2d)(1−cosθ) − iν sinθ | ν + 2d ≤ 1 |
+
+- **Centered mean**: second order, and the linearized operator is exactly the part-2 scheme. But it is never monotone: near the Δt limit, strong gradients in thin margin cells can push H negative (the outgoing flux uses a face mean that can exceed the cell's own H). Codes clip H or add a safety factor.
+- **Upwind**: first order, adds numerical diffusion ≈ cΔx/2. The odd ν² ≤ 2d condition disappears (the advective instability of centered advection is gone), and the scheme is monotone: the update is a convex combination exactly when ν + 2d ≤ 1. The Δt cost is Δx²/(2D_eff + cΔx) = the diffusion limit / (1 + Pe) — only 4% here, since Pe ≪ 1 for ice.
+- **Harmonic mean**: about a uniform state it expands to the same symmetric average as the arithmetic mean (any symmetric mean has ∂/∂H_i = ∂/∂H_j = 1/2 at H_i = H_j), so the linearized operator and all stability bounds are identical. It matters only in the nonlinear regime (it lowers the face diffusivity across sharp thickness contrasts).
+
+**Summary of the practical rule:** use the linearized diffusivity D_eff = n Γ H^(n+2)|∇S|^(n−1), sum it over grid directions (with only D transverse), and apply Δt ≤ 1/(2 Σ_i D_i/Δx_i²) — with the numbers above: 9.1 d in 1D, 6.8 d in 2D with slope along x. The rule as quoted in part 3 is a factor n too optimistic (3× here), and ignores the advective condition that matters when Pe_cell > 1.

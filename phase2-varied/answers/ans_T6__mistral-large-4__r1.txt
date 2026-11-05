@@ -1,0 +1,69 @@
+## 1. Volume response time τ_V ≈ H/(−b_t)
+
+**Derivation.** Write the glacier volume as V = A·H, with mean thickness H and area A. The mass budget is
+
+dV/dt = B = ∫ b dA,
+
+with B the net balance. In steady state B = 0. Now perturb the climate slightly. Near steady state, B changes with V mainly through the terminus position: if the glacier gains area ΔA at the terminus, the extra balance is ΔB = b_t·ΔA, where b_t < 0 is the (steady-state) balance at the terminus. If the glacier adjusts mostly by changing length at roughly constant thickness (shape preserved), ΔV = H·ΔA, so dA/dV = 1/H and
+
+dB/dV = b_t/H < 0.
+
+The budget dV/dt = B(V) then gives an exponential relaxation,
+
+d(δV)/dt = (b_t/H)·δV + forcing,
+
+so the volume relaxes with time constant
+
+τ_V = H/(−b_t) = 150 m / 5 m/a = **30 a**.
+
+**Assumptions:** (i) linear-reservoir behaviour — volume relaxes exponentially; (ii) the balance perturbation scales with the terminus balance b_t; (iii) adjustment is mainly by area/length change at constant mean thickness H (fixed hypsometry, dA/dV = 1/H); (iv) b_t is constant in time; (v) ice dynamics are instantaneous — the flow response is lumped in and no kinematic/diffusive delay is included; (vi) the bed is fixed.
+
+## 2. Kinematic wave speed, kinematic and diffusive time scales
+
+**Kinematic wave speed.** The SIA flux per unit width on a surface slope α is
+
+q = C·H^(n+2)·α^n,  C = 2A(ρg)^n/(n+2).
+
+The kinematic wave speed is c = dq/dH = (n+2)·C·H^(n+1)·α^n = (n+2)·q/H. In steady state q/H = ū (mean speed), so
+
+c = (n+2)·ū = 5 × 40 = **200 m/a**.
+
+**Why c > ū:** q grows superlinearly with thickness (q ∝ H⁵ for n = 3). A small relative change in H therefore produces an (n+2)-fold larger relative change in flux, so a thickness disturbance travels (n+2) times faster than the ice particles themselves.
+
+**Time scales.**
+- Kinematic: L/c = 6000 m / 200 m/a = **30 a**.
+- Diffusive: write the SIA flux as q = D·α, i.e. D = C·H^(n+2)·α^(n−1) = q/α = ūH/α. With q = ūH = 40 × 150 = 6000 m²/a and a sensible valley-glacier surface slope α ≈ 0.1 (H/L = 0.025 is only a lower bound, since the head sits far above H over the terminus), D ≈ 6000/0.1 = **6 × 10⁴ m²/a**. Then L²/D = (6000)²/6×10⁴ ≈ **600 a**. (The estimate is slope-dependent: α = 0.025 gives 150 a, α = 0.15 gives ~900 a — always much larger than L/c.) Justification: D = ūH/α follows directly from the SIA flux calibrated to the observed speed, and α ≈ 0.1 is typical for a 6 km valley glacier.
+
+## 3. Surface elevation feedback
+
+With a fixed bed, S = B + H, so ∂b/∂t = β·∂S/∂t = β·∂H/∂t. The linear model for the mean thickness becomes
+
+d(δH)/dt = −δH/τ_V + β·δH + b′(t) = −(1/τ_V − β)·δH + b′(t).
+
+The effective response time is therefore
+
+τ_eff = 1/(1/τ_V − β) = τ_V/(1 − βτ_V) = 30/(1 − 0.007×30) = 30/0.79 ≈ **38 a**.
+
+The feedback weakens the restoring term (1/τ_V = 0.033 a⁻¹ vs β = 0.007 a⁻¹), so the glacier responds more slowly than the no-feedback estimate.
+
+**Runaway condition:** the linear model is unstable when 1/τ_V − β ≤ 0, i.e.
+
+β ≥ 1/τ_V = −b_t/H  (equivalently βH ≥ −b_t, or βτ_V ≥ 1).
+
+Here βH = 0.007 × 150 = 1.05 m/a < 5 m/a, so the glacier is stable. If βH ≥ −b_t, a small thickening raises the surface, increases accumulation and grows further (runaway growth), while thinning lowers the surface, makes balance more negative and collapses (runaway loss).
+
+**Why bed slope and geometry matter:** the stabilizing term −b_t/H comes from the glacier changing its length — as it retreats on a normal downward-sloping bed, the terminus moves to higher, colder ground where b_t is less negative. On a reverse bed slope (overdeepening) or a marine terminus, retreat moves the terminus lower, b_t becomes more negative, and this geometric feedback changes sign (the basis of marine-ice instability). Valley width, hypsometry and bed slope also change dA/dV, i.e. how much balance changes per unit volume change.
+
+## 4. Inversion bias from assuming a steady-state initial state
+
+The kinematic and volume times (~30 a) are much longer than the 10-year observation window, so during the window the glacier is still transmitting a climate signal from before the window (a "memory" of past forcing). If the initial state is assumed steady, the model has no disequilibrium at t₀ and must explain all of the observed dH/dt with current forcing plus dynamics.
+
+If the glacier is really retreating, the observed thinning is stronger (more negative dH/dt) than what current climate alone would give from steady state. To reproduce this extra thinning, the inversion increases ice discharge — i.e. it infers a **flow parameter biased high** (Glen's A, or the flux factor, overestimated; sign of the bias: positive). For an advancing glacier the bias would be negative.
+
+**Two practical ways to reduce the bias:**
+1. **Spin-up with historical forcing:** run the model from well before the observation window (several τ_V, e.g. 50–100 years) using reconstructed climate, so the glacier reaches the correct non-steady state at t₀; only the last 10 years are used in the inversion.
+2. **Treat the initial state as unknown:** joint state–parameter estimation — initialize with observed geometry (e.g. a DEM of H at t₀) or let the initial thickness/disequilibrium be free parameters, and/or assimilate additional data such as surface velocities that constrain the dynamics directly.
+
+## Summary — which time scale matters most
+
+For this glacier τ_V ≈ 30 a and L/c ≈ 30 a coincide and dominate: the glacier needs ~30 years to adjust its volume and ~30 years for a signal to travel from head to terminus, while pure diffusion across the length is slower still (L²/D ~ 600 a). Both controlling scales are much longer than a 10-year observation window, so on decadal scales the glacier is never in steady state and the delayed, historical response — not the instantaneous forcing — controls the observed dH/dt (which is exactly what biases the inversion in item 4).

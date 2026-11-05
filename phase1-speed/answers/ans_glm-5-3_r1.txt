@@ -1,0 +1,81 @@
+Here is the implementation, followed by the derivation and discussion. Assumptions: uniform grid with the same spacing `dx` in x and y (the signature has a single `dx`), `kappa > 0`, `dx > 0`. The zero-flux condition is imposed with mirror (ghost) values, which is the conservative form: the sum of `T` stays exactly constant, as it should with no heat flowing through the boundary.
+
+```julia
+"""
+    heat_step!(T::Matrix{Float64}, kappa::Float64, dt::Float64, dx::Float64)
+
+Advance the 2D heat equation dT/dt = kappa * Laplacian(T) by one explicit
+(FTCS) timestep, updating `T` in place. `T` has size (ny, nx): first index
+is y, second is x. The spacing is `dx` in both directions.
+
+Zero-flux (Neumann) boundaries: a virtual point outside the grid equals its
+mirror point inside. This makes the discrete flux through each face zero and
+keeps the sum of T exactly constant.
+
+Stability: the caller must ensure kappa*dt/dx^2 <= 1/4,
+i.e. dt <= dx^2 / (4*kappa). The function does not check this.
+"""
+function heat_step!(T::Matrix{Float64}, kappa::Float64, dt::Float64, dx::Float64)
+    ny, nx = size(T)
+    r = kappa * dt / (dx * dx)            # diffusion number
+
+    # Explicit scheme: every read must see the field at the old time level,
+    # so read from a copy and write the new field into T.
+    Told = copy(T)
+
+    # Outer loop over x (columns), inner loop over y: contiguous reads in
+    # column-major memory. Clamped neighbour indices implement the mirror
+    # boundary condition at all four edges and corners.
+    @inbounds for j in 1:nx
+        jp = min(j + 1, nx)               # mirror across the right edge
+        jm = max(j - 1, 1)                # mirror across the left edge
+        for i in 1:ny
+            ip = min(i + 1, ny)           # mirror across the top edge
+            im = max(i - 1, 1)            # mirror across the bottom edge
+            lap = (Told[i, jp] - 2.0 * Told[i, j] + Told[i, jm]) +   # d2T/dx2
+                  (Told[ip, j] - 2.0 * Told[i, j] + Told[im, j])     # d2T/dy2
+            T[i, j] = Told[i, j] + r * lap
+        end
+    end
+    return T
+end
+```
+
+## 1. Von Neumann stability in 2D
+
+For an interior node (p, q), the forward-time central-space update is
+
+    T[n+1](p,q) = T[n](p,q) + r * (T[n](p±1,q) + T[n](p,q±1) − 4·T[n](p,q)),   r = κ·dt/dx².
+
+The scheme is linear, so it is enough to follow one Fourier mode of the error and superpose. Insert
+
+    e[n](p,q) = ξⁿ · exp(i·(p·θx + q·θy)),   θx = kx·dx, θy = ky·dy,
+
+where i is the imaginary unit and ξ is the amplification per step. The shifts p → p±1 contribute factors exp(±iθx), so
+
+    ξ = 1 + r·(2·cos θx + 2·cos θy − 4) = 1 − 4r·(sin²(θx/2) + sin²(θy/2)).
+
+ξ is real, and the sine-squared sum runs from 0 (constant mode) to 2 (θx = θy = π, the 2Δx checkerboard). So ξ ∈ [1 − 8r, 1]. Stability means |ξ| ≤ 1 for every mode:
+
+- The upper end is automatic: ξ ≤ 1 means modes decay or stay put. ξ = 1 for the constant mode is correct here — zero flux means conserved heat.
+- The lower end binds: 1 − 8r ≥ −1, i.e. r ≤ 1/4.
+
+With r = κ·dt/dx², this is **dt ≤ dx² / (4·κ)**. The worst mode is the cell-sized checkerboard. (If the spacings differed, the condition would be κ·dt·(1/dx² + 1/dy²) ≤ 1/2; setting dx = dy gives the result above. The Neumann mirror boundaries do not loosen the bound: the checkerboard mode exists on the bounded grid too.)
+
+## 2. What changes in 3D
+
+The stencil grows to 6 neighbours, and the derivation is the same with three angles:
+
+    ξ = 1 − 4r·(sin²(θx/2) + sin²(θy/2) + sin²(θz/2)),   sum ≤ 3.
+
+Stability: 1 − 12r ≥ −1, so r ≤ 1/6, i.e. **dt ≤ dx² / (6·κ)**. In d dimensions with isotropic spacing the rule is dt ≤ dx² / (2d·κ): the allowed timestep shrinks by 4/6 = 2/3 going from 2D to 3D, on top of the larger grid. This is the standard reason to switch to implicit schemes (Crank–Nicolson, ADI), which are unconditionally stable but need a linear solve per step.
+
+## 3. What happens when the condition is violated
+
+For r > 1/4 the checkerboard mode gets ξ < −1: its magnitude grows by |ξ| each step while its sign flips every step. Round-off noise (~1e-16) always seeds it. Example: at r = 0.3, |ξ| = 1.4, so noise reaches order 1 in about 110 steps and Inf/NaN shortly after. Symptoms: cell-sized zig-zag oscillations, alternating sign from step to step, growing geometrically — the solution is garbage well before the overflow.
+
+The discrete maximum principle gives the same picture: for r ≤ 1/4 the update is a convex combination of the five old values (weights r, r, r, r, 1 − 4r, all non-negative), so no new extrema can appear. For r > 1/4 the centre weight is negative and the scheme manufactures new extrema every step. At exactly r = 1/4 the checkerboard is neutral (|ξ| = 1): it neither grows nor decays, so any noise that enters stays forever.
+
+## 4. Complexity per timestep
+
+Each of the N = nx·ny nodes does O(1) work (five loads, about 10 flops, one store), so each step is **Θ(N)** time and Θ(N) memory traffic — in practice bandwidth-bound, not flop-bound. The copy of the old field adds one more O(N) pass; with this fixed signature it must be allocated per call, so for long runs you would pass a preallocated buffer or alternate two arrays. The step parallelizes trivially over cells. The real cost of explicit diffusion is elsewhere: reaching a fixed simulated time takes Θ(1/dt) steps, so the total work on a fixed domain scales like Θ(N·κ/dx²) = Θ(dx⁻⁴) in 2D as the grid is refined. That, not the per-step cost, is what motivates implicit methods.

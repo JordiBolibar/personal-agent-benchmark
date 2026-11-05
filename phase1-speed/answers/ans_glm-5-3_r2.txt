@@ -1,0 +1,106 @@
+One explicit FTCS (forward in time, centered in space) step with a 5-point Laplacian. Zero flux at the walls is applied by mirroring the boundary value into the ghost cells, which also keeps the discrete sum of `T` exactly conserved.
+
+```julia
+"""
+    heat_step!(T, kappa, dt, dx)
+
+Advance the 2D heat equation dT/dt = kappa * Laplacian(T) by one explicit
+(FTCS) timestep on a square grid of spacing `dx`, updating `T` in place.
+`T` is indexed as `T[ix, iy]`.
+
+Boundary conditions: Neumann zero flux, applied by mirroring the boundary
+value into the ghost cell (T_ghost = T_boundary). This preserves constant
+fields and conserves the discrete sum of T.
+
+Stability requires kappa*dt/dx^2 <= 1/4. Above that the scheme diverges.
+"""
+function heat_step!(T::Matrix{Float64}, kappa::Float64, dt::Float64, dx::Float64)
+    nx = size(T, 1)
+    ny = size(T, 2)
+    r = kappa * dt / (dx * dx)
+
+    # Explicit scheme: we must not overwrite values that neighbouring
+    # cells still need to read, so the update goes into a buffer first.
+    Tnew = similar(T)
+
+    @inbounds for j in 1:ny
+        jd = max(j - 1, 1)      # mirror at the y-boundaries (zero flux)
+        ju = min(j + 1, ny)
+        for i in 1:nx
+            il = max(i - 1, 1)  # mirror at the x-boundaries (zero flux)
+            ir = min(i + 1, nx)
+            # 5-point Laplacian. At an edge, the out-of-domain neighbour
+            # is replaced by the node itself: T_ghost = T_boundary.
+            lap = (T[ir, j] - 2.0 * T[i, j] + T[il, j]) +
+                  (T[i, ju] - 2.0 * T[i, j] + T[i, jd])
+            Tnew[i, j] = T[i, j] + r * lap
+        end
+    end
+
+    copyto!(T, Tnew)
+    return T
+end
+```
+
+Note: `similar(T)` allocates one buffer per call. For a long time loop, hoist that buffer out and pass it in (or use a two-field ping-pong); the rest is unchanged.
+
+## 1. Von Neumann stability in 2D
+
+The interior update, with r = kappa*dt/dx^2 and dx = dy:
+
+    T[n+1,i,j] = T[n,i,j] + r*(T[n,i+1,j] + T[n,i-1,j] + T[n,i,j+1] + T[n,i,j-1] - 4*T[n,i,j])
+
+von Neumann analysis studies one Fourier mode on an infinite (or periodic) grid:
+
+    T[n,i,j] = g^n * exp(I*(θx*i + θy*j)),   θx = kx*dx,  θy = ky*dx
+
+A shifted index only multiplies the mode by a phase, so the amplification factor per step is
+
+    g = 1 + r*(e^{Iθx} + e^{-Iθx} + e^{Iθy} + e^{-Iθy} - 4)
+      = 1 + 2r*(cos θx - 1) + 2r*(cos θy - 1)
+      = 1 - 4r*sin²(θx/2) - 4r*sin²(θy/2)
+
+The scheme is stable iff |g| <= 1 for every resolvable mode (|θx|, |θy| <= pi). Here g is real, so:
+
+- g <= 1 holds automatically, since the sine terms are non-negative and r >= 0.
+- g >= -1 requires 4r*(sin²(θx/2) + sin²(θy/2)) <= 2, i.e. r*(sin²(θx/2) + sin²(θy/2)) <= 1/2.
+
+Each sin² term lies in [0, 1], so the sum is at most 2, reached at θx = θy = pi: the "checkerboard" mode, +a / -a from cell to cell. The binding case is therefore
+
+    2r <= 1/2   =>   r <= 1/4   =>   kappa*dt/dx^2 <= 1/4   =>   dt <= dx^2 / (4*kappa)
+
+Two side remarks:
+
+- The same bound follows from the discrete maximum principle: the update is a convex combination of the 5 values (neighbour weights r, centre weight 1 - 4r) exactly when r <= 1/4. If the centre weight goes negative, local extrema grow instead of being damped.
+- The analysis assumes a periodic grid, but the bound also holds for the bounded Neumann problem: with the mirror condition the discrete Laplacian is symmetric and negative semidefinite, with eigenvalues in (-8/dx^2, 0], and the update matrix I + kappa*dt*L then has all eigenvalues in [-1, 1] precisely under the same condition. At r = 1/4 exactly, the checkerboard mode has g = -1: no growth, but also no damping, so it oscillates forever.
+
+## 2. What changes in 3D
+
+The stencil becomes 7 points (6 neighbours plus the centre), and the amplification factor gains a third term:
+
+    g = 1 - 4r*(sin²(θx/2) + sin²(θy/2) + sin²(θz/2))
+
+The worst case is now the sum of three 1s, so the stability condition tightens to 3r <= 1/2, i.e.
+
+    r <= 1/6   =>   dt <= dx^2 / (6*kappa)
+
+The pattern is general: in d dimensions with isotropic spacing, dt <= dx^2 / (2*d*kappa). Each new direction adds another negative term, and the worst mode takes the maximum from all directions at once. With anisotropic spacing the condition is kappa*dt*(1/dx^2 + 1/dy^2 + 1/dz^2) <= 1/2.
+
+## 3. What happens when the condition is violated
+
+For r > 1/4, every mode with sin²(θx/2) + sin²(θy/2) > 1/(2r) has |g| > 1. The first to go is the checkerboard mode, with g = 1 - 8r < -1: its amplitude is multiplied by 8r - 1 > 1 and its sign flips at every step. Concretely:
+
+- The amplitude grows geometrically, like (8r - 1)^n. At r = 0.26 the factor is 1.08 (doubling every ~9 steps); at r = 0.3 it is 1.4; at r = 0.5 it is 3 per step.
+- The signature in the field is a 2Δx sawtooth/checkerboard oscillation that grows and alternates sign, plus values leaving the initial [min, max] range (possibly "negative temperatures" from positive data).
+- Round-off seeds high-frequency components even from a perfectly smooth start, so the instability always appears; with smooth data it can look fine for many steps and then blow up quickly. Even r = 0.2501 is unstable in exact arithmetic, just slowly.
+- With the mirror Neumann condition the discrete mean stays exact throughout, but the variance grows without bound. The run ends in overflow: values pass the Float64 range, become Inf, and the Laplacian then produces NaN (Inf - Inf). The result is garbage.
+
+The instability is a property of the discretization, not of the PDE: the heat equation only smooths, but with too large a step the scheme pumps energy into the modes it resolves worst.
+
+## 4. Complexity per timestep
+
+- Time: Θ(nx*ny). Each cell does a fixed handful of flops (one Laplacian, one fused multiply-add), independent of dt, dx and kappa. In d dimensions, Θ(N) with N = n^d cells.
+- Memory: one extra field. As written the buffer is allocated per call (Θ(N) allocation plus a copy each step); hoisted out, the extra memory is O(1).
+- In practice the step is memory-bandwidth bound, not flop bound: about 5 reads and 1 write per cell, traversed in column order for cache locality.
+
+One consequence worth stating: to reach a fixed physical time, the step count scales as 1/dt ∝ dx^2/kappa, so the total cost in 2D scales as dx^-4. That stiffness of explicit diffusion is the standard reason to switch to implicit schemes (Crank-Nicolson, ADI) or multigrid solvers on fine grids.

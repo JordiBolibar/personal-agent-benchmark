@@ -1,0 +1,86 @@
+```julia
+"""
+    heat_step!(T, kappa, dt, dx)
+
+One explicit (FTCS) timestep of the 2D heat equation
+
+    dT/dt = kappa * (d²T/dx² + d²T/dy²)
+
+on a uniform grid with the same spacing `dx` in x and y.
+`T[j, i]`: j is the y index (rows), i is the x index (columns).
+Neumann (zero-flux) boundaries: a missing neighbour outside the
+grid is mirrored, i.e. replaced by the boundary point itself.
+`T` is updated in place.
+
+Stable only for kappa*dt/dx² <= 1/4, i.e. dt <= dx²/(4*kappa).
+"""
+function heat_step!(T::Matrix{Float64}, kappa::Float64, dt::Float64, dx::Float64)
+    ny, nx = size(T)
+    r      = kappa * dt / (dx * dx)
+    invdx2 = 1.0 / (dx * dx)
+
+    # The update of each point needs the OLD values of its neighbours,
+    # so work on a copy and write the new state back into T.
+    Told = copy(T)
+
+    @inbounds for j in 1:ny
+        jp = min(j + 1, ny)      # zero flux in y: ghost row = row j
+        jm = max(j - 1, 1)
+        for i in 1:nx
+            ip = min(i + 1, nx)  # zero flux in x: ghost col = col i
+            im = max(i - 1, 1)
+            # 5-point Laplacian. At a boundary the mirrored neighbour
+            # equals the point itself, so the centre weight drops from
+            # 4 to 3 (edge) or 2 (corner) automatically.
+            lap = (Told[j, ip] + Told[j, im] +
+                   Told[jp, i] + Told[jm, i] - 4.0 * Told[j, i]) * invdx2
+            T[j, i] = Told[j, i] + dt * kappa * lap
+        end
+    end
+    return T
+end
+```
+
+Notes on the code: it assumes square cells (dx = dy), since the signature carries one spacing. The mirror treatment is the discrete form of ∂T/∂n = 0 at the boundary: for example on the left edge, (T[0] - 2T[1] + T[2])/dx² becomes (T[2] - T[1])/dx². A side effect worth knowing: the scheme conserves the mean of T exactly (zero flux in, zero flux out), so the spatial mean should stay constant up to round-off — a cheap correctness check. The `copy(T)` costs one O(N) allocation per call; if that matters, two rolling row buffers give the same result with O(nx) extra memory.
+
+**1. Von Neumann stability in 2D**
+
+The interior update, with r = κ·dt/dx², is
+
+    Tⁿ⁺¹ᵢⱼ = Tⁿᵢⱼ + r·(Tⁿᵢ₊₁ⱼ + Tⁿᵢ₋₁ⱼ + Tⁿᵢⱼ₊₁ + Tⁿᵢⱼ₋₁ − 4·Tⁿᵢⱼ)
+
+Insert one Fourier mode Tⁿᵢⱼ = Ĝⁿ·e^(I·(iθ + jφ)), where θ = kₓ·dx and φ = k_y·dx are dimensionless wavenumbers. The neighbours contribute e^(±Iθ) and e^(±Iφ):
+
+    Ĝ = 1 + r·(2cosθ + 2cosφ − 4) = 1 − 4r·[sin²(θ/2) + sin²(φ/2)]
+
+Stability means |Ĝ| ≤ 1 for every mode. Since r ≥ 0, Ĝ ≤ 1 always; only the lower side can fail. The bracket is at most 2 (both sines equal 1), so the worst mode gives Ĝ = 1 − 8r. Requiring Ĝ ≥ −1:
+
+    1 − 8r ≥ −1  ⟺  r ≤ 1/4  ⟺  **dt ≤ dx² / (4·kappa)**
+
+The worst mode is θ = φ = π: the 2Δx checkerboard. The Neumann boundaries do not weaken this bound: the mirrored boundary stencils have smaller centre weights (3 on an edge, 2 at a corner), so by Gershgorin's theorem their amplification discs lie inside the interior one. The bound r ≤ 1/4 covers the whole grid.
+
+**2. What changes in 3D**
+
+The stencil gets 6 neighbours and centre weight 6, and the same computation gives
+
+    Ĝ = 1 − 4r·[sin²(θ/2) + sin²(φ/2) + sin²(ψ/2)]
+
+The bracket now reaches 3, so stability needs 1 − 12r ≥ −1, i.e. r ≤ 1/6:
+
+    dt ≤ dx² / (6·kappa)
+
+In d dimensions the general result is dt ≤ dx²/(2d·κ): each new dimension adds one diffusive direction and shrinks the allowed step. This is the practical pain of explicit diffusion: refining the grid by 2 forces dt down by 4, which is why fine-grid 3D diffusion is usually done implicitly or with operator splitting.
+
+**3. What happens when the condition is violated**
+
+For r > 1/4 the high-frequency modes get |Ĝ| = 8r − 1 > 1, with a sign flip each step. Round-off noise always contains these modes, so the blow-up is not a question of "if" but of "when":
+
+- The solution first grows a faint 2Δx sawtooth / checkerboard pattern on top of the smooth field.
+- That pattern grows geometrically by (8r − 1) per step until it reaches Inf and NaN. A big violation (r = 0.5, factor 3 per step) destroys the run in a few hundred steps. A mild one (r = 0.26, factor 1.08) can look stable for thousands of steps and then explode — a classic trap, because the run seems fine during testing.
+- The oscillation sign is the diagnostic: growth in place with alternating signs is a stability failure, not a bug in the physics.
+
+This is a loss of stability, not just accuracy: the discrete solution stops converging to the PDE solution at all.
+
+**4. Complexity per timestep**
+
+Each of the N = nx·ny grid points needs one pass with a fixed stencil (~10 flops), so time is O(N), with no global coupling or communication. Memory here is O(N) for the copy (O(nx) with row buffers). The real cost is the step count: for a fixed simulated time, dt scales as dx², so total work scales as O(dx⁻⁴) in 2D and O(dx⁻⁵) in 3D — the real reason explicit diffusion loses to implicit methods on fine grids.

@@ -1,0 +1,75 @@
+## Findings, ranked by severity
+
+1. **Global mutable `cache` written inside `rhs!` (critical — breaks AD).** Zygote cannot differentiate through `setindex!` on a global array. Symptom: the run crashes at `Zygote.gradient(loss, θ0)` when the adjoint first builds a VJP of `rhs!`; no gradient is returned. Even on versions that tolerate it, the shared mutable state races under reentrant/parallel solver calls and leaks values between calls, so gradients are silently wrong — this is the "unreliable even after a quick fix" part. Fix: allocate the flux array locally inside `rhs!` (or carry it in the state).
+
+2. **Boundary fluxes are never assigned (high — correctness).** `cache[1]` and `cache[N+1]` are only read, never written; they are zero only because of the initial `zeros`. The no-flux boundary condition is accidental and depends on stale global state. Symptom: silently imposes zero-flux BCs; any reuse of `cache` changes the physics. Fix: set `flux[1]` and `flux[N+1]` explicitly every call.
+
+3. **Explicit `Tsit5` on a diffusion problem (high — correctness/reliability).** Diffusion with `dx = 100` has eigenvalues up to about `-4·Dmax/dx²`, so explicit stability needs `dt ≲ dx²/(2·Dmax)`. `softplus` lets `D` grow without bound, so the step size can collapse or the solution go NaN, and gradients through a barely-stable explicit solve are garbage. Symptom: "dt too small" / NaN / huge step counts.
+
+4. **Default solver tolerances are too loose for an adjoint (medium — gradient accuracy).** `InterpolatingAdjoint` interpolates the forward solution in the reverse pass; with default `reltol=1e-3` the gradient is noisy. Fix: `reltol=1e-8, abstol=1e-10` (or `BacksolveAdjoint` for a more accurate but slower reverse solve).
+
+5. **Per-interface Lux call allocates a fresh `[Hmid/100]` vector inside the loop (medium — performance).** This repeats on every RHS evaluation and again inside every adjoint VJP. Fix: preallocate one input buffer, or evaluate the NN on all interfaces vectorized.
+
+6. **Broadcast temporaries in the divergence (low — performance).** `cache[1:N] .- cache[2:N+1]` allocates two slices plus a temporary. Fix: an explicit `@inbounds` loop.
+
+7. **Hygiene issues (low).** Hardcoded `Hmid/100` duplicates `dx`; `cache`/`nn` are non-const globals (dynamic dispatch); `Random.default_rng()` is unseeded; discarding the NN state (`_`) would break if a stateful layer is ever added; unbounded `softplus` diffusivity feeds finding 3. The stencil itself (signs, indexing) is actually correct for zero-flux boundaries.
+
+## 2. First error when running
+
+Everything up to and including the forward solve inside `loss` runs. The first error is thrown at **`g = Zygote.gradient(loss, θ0)`**: the adjoint's first VJP of `rhs!` fails because Zygote cannot differentiate the mutation of the global `cache` (`cache[i] = ...`). On Zygote versions that compile it instead, you get silently wrong gradients rather than an error.
+
+## 3. Choice of `autojacvec`
+
+Keep **`ZygoteVJP()`** — reverse-mode AD of the RHS, exact gradients, and it works with Lux + `ComponentArray` parameters (49 params here). The requirement is that `rhs!` be Zygote-friendly: **no mutation of global arrays**; a locally allocated array is fine. The alternatives and what they demand of `cache`:
+
+- `ForwardDiffVJP()` — the RHS runs with dual numbers, so a global `Vector{Float64}` cache cannot store duals (InexactError). The cache must be local and typed by the state, e.g. `zeros(eltype(H), N+1)`, so it also works under the implicit solver's ForwardDiff Jacobian.
+- `ReverseDiffVJP()` — tape-based; the global mutation is problematic again and taping adds overhead.
+- `FiniteDiff()` — no AD, so it tolerates the global cache as-is, but gradients are only finite-difference accurate.
+
+So whichever you pick, the local cache is mandatory; with `ZygoteVJP` it is sufficient.
+
+## 4. Solver and sensitivity suitability
+
+`Tsit5` is explicit and non-stiff — a poor fit here. Use an implicit L-stable solver (`Rodas5`, `RadauIIA5`, or `FBDF`). `InterpolatingAdjoint` is the right sensitivity family for a pointwise terminal loss and works with implicit solvers (only the RHS is differentiated), but tighten tolerances as above. Note the implicit solver also needs a Jacobian of `rhs!`, which SciML gets by ForwardDiff by default — another reason the cache must be local and dual-typed.
+
+```julia
+using Lux, ComponentArrays, OrdinaryDiffEq, SciMLSensitivity, Zygote, Random
+
+rng = Random.Xoshiro(42)  # seeded: reproducible init
+nn = Chain(Dense(1, 16, tanh), Dense(16, 1, softplus))
+θ0, st = Lux.setup(rng, nn)
+θ0 = ComponentArray(θ0)
+
+const N = 50
+const dx = 100.0
+const H_SCALE = 100.0   # input scaling for the NN, named instead of hardcoded /100
+
+# du/dt = d/dx( D(H) dH/dx ) with zero-flux (Neumann) boundaries
+function rhs!(dH, H, θ, t)
+    flux = zeros(eltype(H), N + 1)  # local: AD-safe, no shared/global state
+    x = [zero(eltype(H))]           # reused NN input buffer, no per-call allocation
+    @inbounds for i in 2:N
+        Hmid = 0.5 * (H[i-1] + H[i])
+        x[1] = Hmid / H_SCALE
+        Dmid, _ = nn(x, θ, st)
+        flux[i] = -Dmid[1] * (H[i] - H[i-1]) / dx
+    end
+    flux[1] = 0.0     # left boundary: no flux, set explicitly
+    flux[N+1] = 0.0   # right boundary: no flux
+    @inbounds for i in 1:N
+        dH[i] = (flux[i] - flux[i+1]) / dx
+    end
+    return nothing
+end
+
+prob = ODEProblem(rhs!, H0, (0.0, 10.0), θ0)
+
+function loss(θ)
+    sol = solve(prob, Rodas5(); p=θ, saveat=1.0,   # implicit: stable for stiff diffusion
+        reltol=1e-8, abstol=1e-10,                 # tight tolerances for clean adjoint
+        sensealg=InterpolatingAdjoint(autojacvec=ZygoteVJP()))
+    return sum(abs2, sol.u[end] - Hobs) / N
+end
+
+g = Zygote.gradient(loss, θ0)
+```

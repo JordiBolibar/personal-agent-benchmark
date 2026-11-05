@@ -1,0 +1,288 @@
+The operator is symmetric and tridiagonal, so `A = I + rL(κ)` is stored as a `LinearAlgebra.Tridiagonal`; its banded LU (Thomas algorithm, LAPACK `gttrf`/`gttrs`) gives O(N) solve and O(N) factorization, and the pullback reuses that factorization. I could not run the code, so dimensions and signs are checked by hand (a symbolic 2-cell case is in the derivation below). The function is named `implicit_diffusion_step` instead of `step` to avoid a name clash with `Base.step`.
+
+```julia
+# implicit_diffusion_step.jl
+#
+# Differentiable backward-Euler diffusion step in 1D, no-flux boundaries:
+#
+#     x = (I + r * L(κ)) \ u,      r = Δt / Δx²
+#
+# u has length n (cells), κ has length n - 1 (interior faces), and
+#
+#     (L u)[i] = -κ[i] * (u[i+1] - u[i]) + κ[i-1] * (u[i] - u[i-1]),
+#
+# dropping the terms whose face falls outside the domain. Each row of L
+# sums to zero, so A = I + r*L leaves a constant state unchanged.
+
+using LinearAlgebra
+using ChainRulesCore
+
+# ---------------------------------------------------------------------------
+# assembly
+# ---------------------------------------------------------------------------
+
+"""
+    _diffusion_matrix(κ, r, n)
+
+Return `A = I + r*L(κ)` as a `Tridiagonal` matrix. Symmetric by construction:
+face `i` enters both off-diagonals with the same value. Faces outside the
+domain read as zero (no-flux):
+
+    A[i, i]   = 1 + r*(κ[i-1] + κ[i])      (absent faces read as zero)
+    A[i, i+1] = A[i+1, i] = -r*κ[i]        (face between cells i and i+1)
+"""
+function _diffusion_matrix(κ::AbstractVector{<:Real}, r::Real, n::Integer)
+    n >= 1 || throw(DimensionMismatch("n must be >= 1, got $n"))
+    length(κ) == n - 1 ||
+        throw(DimensionMismatch("expected length(κ) == n - 1 == $(n - 1), got $(length(κ))"))
+
+    T  = float(promote_type(eltype(κ), typeof(r)))
+    d  = Vector{T}(undef, n)
+    dl = Vector{T}(undef, n - 1)
+    du = Vector{T}(undef, n - 1)
+
+    @inbounds for i in 1:n
+        κ_left  = i > 1 ? κ[i - 1] : zero(T)   # face left of cell i
+        κ_right = i < n ? κ[i]     : zero(T)   # face right of cell i
+        d[i] = one(T) + r * (κ_left + κ_right)
+    end
+    @inbounds for i in 1:(n - 1)
+        dl[i] = du[i] = -r * κ[i]              # face i
+    end
+    return Tridiagonal(dl, d, du)
+end
+
+# ---------------------------------------------------------------------------
+# primal
+# ---------------------------------------------------------------------------
+
+# Build A, factorize once, solve once. The rule reuses the factorization.
+function _forward(u::AbstractVector{<:Real}, κ::AbstractVector{<:Real}, r::Real)
+    n = length(u)
+    n >= 1 || throw(DimensionMismatch("expected length(u) >= 1, got $n"))
+    length(κ) == n - 1 ||
+        throw(DimensionMismatch("expected length(κ) == length(u) - 1 == $(n - 1), got $(length(κ))"))
+
+    T = float(promote_type(eltype(u), eltype(κ), typeof(r)))
+    F = factorize(_diffusion_matrix(κ, T(r), n))  # Tridiagonal -> banded LU (Thomas with
+                                                 # partial pivoting), O(n), LAPACK gttrf
+    x = F \ T.(u)                                 # O(n) solve, LAPACK gttrs
+    return x, F
+end
+
+"""
+    implicit_diffusion_step(u, κ, r)
+
+Solve `(I + r*L(κ)) x = u`, one implicit diffusion step. O(n) time and memory.
+"""
+function implicit_diffusion_step(u::AbstractVector{<:Real},
+                                 κ::AbstractVector{<:Real},
+                                 r::Real)
+    x, _ = _forward(u, κ, r)
+    return x
+end
+
+# ---------------------------------------------------------------------------
+# rrule
+# ---------------------------------------------------------------------------
+
+function ChainRulesCore.rrule(::typeof(implicit_diffusion_step),
+                              u::AbstractVector{<:Real},
+                              κ::AbstractVector{<:Real},
+                              r::Real)
+    x, F = _forward(u, κ, r)     # x: primal output, F: LU of A(κ, r)
+    n    = length(x)
+    S    = eltype(x)
+    Pu   = ProjectTo(u)          # put tangents back on the input types
+    Pκ   = ProjectTo(κ)
+
+    function implicit_diffusion_step_pullback(Ω̄)
+        v = unthunk(Ω̄)
+        if v isa AbstractZero
+            return (NoTangent(), ZeroTangent(), ZeroTangent(), NoTangent())
+        end
+        v isa AbstractArray || throw(ArgumentError(
+            "cotangent must be a size-$n AbstractArray, got $(typeof(v))"))
+
+        # Adjoint solve A' λ = v̄. A is exactly symmetric (both off-diagonals hold
+        # the same -r*κ[i]), so A' = A and the primal factorization F is reused.
+        # Valid because A depends on (κ, r) only, never on u, and because `\`
+        # does not mutate the factors.
+        λ = F \ S.(v)
+
+        # u-tangent: dx/du = A⁻¹, whose adjoint is A⁻ᵀ; with A = Aᵀ this is λ.
+        ū = λ
+
+        # κ-tangent: κ̄[i] = r * (x[i+1] - x[i]) * (λ[i] - λ[i+1])   (i = 1..n-1)
+        # i.e. κ̄ = -r .* diff(x) .* diff(λ). See the derivation.
+        κ̄ = similar(λ, n - 1)
+        @inbounds for i in 1:(n - 1)
+            κ̄[i] = S(r) * (x[i + 1] - x[i]) * (λ[i] - λ[i + 1])
+        end
+
+        # r is a fixed scalar parameter: NoTangent(), per spec.
+        return (NoTangent(), Pu(ū), Pκ(κ̄), NoTangent())
+    end
+
+    return x, implicit_diffusion_step_pullback
+end
+
+# ---------------------------------------------------------------------------
+# tests
+# ---------------------------------------------------------------------------
+
+using Test
+using Random
+
+# dense reference for L, written straight from the definition
+function _dense_L(κ::AbstractVector{<:Real}, n::Integer)
+    Ld = zeros(n, n)
+    for i in 1:n
+        if i > 1
+            Ld[i, i]     += κ[i - 1]
+            Ld[i, i - 1] -= κ[i - 1]
+        end
+        if i < n
+            Ld[i, i]     += κ[i]
+            Ld[i, i + 1] -= κ[i]
+        end
+    end
+    return Ld
+end
+
+@testset "implicit_diffusion_step" begin
+    rng = MersenneTwister(2026)
+
+    @testset "assembly matches the definition" begin
+        for _ in 1:20
+            n = rand(rng, 1:12)
+            u = randn(rng, n)
+            κ = rand(rng, n - 1)
+            r = rand(rng)
+            Aref = Matrix{Float64}(I, n, n) + r * _dense_L(κ, n)
+            Atri = _diffusion_matrix(κ, r, n)
+            @test Matrix(Atri) ≈ Aref
+            @test issymmetric(Atri)
+            @test implicit_diffusion_step(u, κ, r) ≈ Aref \ u
+            @test implicit_diffusion_step(fill(2.5, n), κ, r) ≈ fill(2.5, n)  # no-flux
+        end
+    end
+
+    @testset "pullback vs central finite differences" begin
+        for _ in 1:10
+            n = rand(rng, 2:16)
+            u = randn(rng, n)
+            κ = rand(rng, n - 1)
+            r = 0.5rand(rng)
+            w = randn(rng, n)              # random scalar projection direction
+
+            x, pb = rrule(implicit_diffusion_step, u, κ, r)
+            @test x == implicit_diffusion_step(u, κ, r)
+
+            t̄f, ū, κ̄, t̄r = pb(w)
+            @test t̄f === NoTangent()
+            @test t̄r === NoTangent()
+            ūv, κ̄v = unthunk(ū), unthunk(κ̄)
+            @test size(ūv) == (n,)
+            @test size(κ̄v) == (n - 1,)
+
+            Δu = randn(rng, n)
+            Δκ = randn(rng, n - 1)
+            ε  = 1e-6
+            # central FD of the scalar projection f(u, κ) = dot(x, w)
+            fd_u = (dot(implicit_diffusion_step(u .+ ε .* Δu, κ, r), w) -
+                    dot(implicit_diffusion_step(u .- ε .* Δu, κ, r), w)) / 2ε
+            fd_κ = (dot(implicit_diffusion_step(u, κ .+ ε .* Δκ, r), w) -
+                    dot(implicit_diffusion_step(u, κ .- ε .* Δκ, r), w)) / 2ε
+            @test dot(ūv, Δu) ≈ fd_u   rtol = 1e-6 atol = 1e-8
+            @test dot(κ̄v, Δκ) ≈ fd_κ   rtol = 1e-6 atol = 1e-8
+        end
+    end
+
+    @testset "dot-product consistency (Jv vs vᵀJ)" begin
+        n = 13
+        u, κ, r = randn(rng, n), rand(rng, n - 1), 0.7
+        Δu, Δκ = randn(rng, n), randn(rng, n - 1)
+        w = randn(rng, n)
+        ε = 1e-6
+
+        _, pb = rrule(implicit_diffusion_step, u, κ, r)
+        _, ū, κ̄, _ = pb(w)
+        ūv, κ̄v = unthunk(ū), unthunk(κ̄)
+
+        # forward directional derivative (a vector), by central differences
+        Jv = (implicit_diffusion_step(u .+ ε .* Δu, κ .+ ε .* Δκ, r)
+            .- implicit_diffusion_step(u .- ε .* Δu, κ .- ε .* Δκ, r)) ./ 2ε
+
+        # <Jv, w> must equal <(ū, κ̄), (Δu, Δκ)>
+        @test dot(Jv, w) ≈ dot(ūv, Δu) + dot(κ̄v, Δκ) rtol = 1e-6 atol = 1e-7
+    end
+
+    @testset "degenerate cases" begin
+        # n = 1: no faces, A = [1], step is the identity
+        x, pb = rrule(implicit_diffusion_step, [0.3], Float64[], 2.0)
+        @test x ≈ [0.3]
+        _, ū, κ̄, _ = pb([1.0])
+        @test unthunk(ū) ≈ [1.0]
+        @test unthunk(κ̄) == Float64[]
+
+        # zero cotangent gives zero tangents
+        _, pb = rrule(implicit_diffusion_step, randn(rng, 5), rand(rng, 4), 0.4)
+        t = pb(ZeroTangent())
+        @test t[1] isa NoTangent && t[4] isa NoTangent
+        @test t[2] isa AbstractZero && t[3] isa AbstractZero
+
+        # mismatched κ length must throw
+        @test_throws DimensionMismatch implicit_diffusion_step(randn(4), rand(2), 0.1)
+    end
+
+    @testset "Float32 end to end" begin
+        u32 = Float32.(randn(rng, 8)); κ32 = Float32.(rand(rng, 7))
+        x, pb = rrule(implicit_diffusion_step, u32, κ32, 0.5f0)
+        @test eltype(x) == Float32
+        _, ū, κ̄, _ = pb(ones(Float32, 8))
+        @test eltype(unthunk(ū)) == Float32
+        @test eltype(unthunk(κ̄)) == Float32
+    end
+end
+```
+
+## Pullback derivation
+
+**Matrix.** With 1-based indices and out-of-range faces read as zero, `A = I + rL` has entries `A[i,i] = 1 + r(κ[i-1] + κ[i])` and `A[i,i+1] = A[i+1,i] = -rκ[i]`. Face `i` appears in rows `i` and `i+1` only, so this reproduces the definition, ends included. Both off-diagonals of a face hold the same number, so `A = Aᵀ`. Each row of `L` sums to zero, so constants pass through unchanged.
+
+**Tangents.** `x = A⁻¹u` with `A(κ) = I + rL(κ)` and `L` linear in `κ`. Differentiate the implicit identity `A x = u`:
+
+- w.r.t. `u`: `A δx = δu`, so `δx = A⁻¹ δu`, i.e. `∂x/∂u = A⁻¹`.
+- w.r.t. `κ`: `A δx + rL(δκ)x = 0`, so `δx = -r A⁻¹ L(δκ) x`.
+
+**Pullback.** Given cotangent `v̄`, set `λ = A⁻ᵀ v̄` (one adjoint solve).
+
+- *u-tangent:* `ū = A⁻ᵀ v̄ = λ` (by symmetry, the same vector the adjoint solve produced).
+- *κ-tangent:* `⟨v̄, δx⟩ = -r ⟨A⁻ᵀv̄, L(δκ)x⟩ = -r ⟨λ, L(δκ)x⟩`. With `g_i = x[i+1] − x[i]` and `(L(δκ)x)_i = -δκ_i g_i + δκ_{i-1} g_{i-1}` (missing faces dropped), collect the coefficient of each `δκ_i`: face `i` contributes `−λ_i g_i` from row `i` and `+λ_{i+1} g_i` from row `i+1`:
+
+  ```
+  ⟨λ, L(δκ)x⟩ = Σ_{i=1}^{N−1} δκ_i g_i (λ_{i+1} − λ_i)
+  ```
+
+  so `κ̄_i = -r g_i (λ_{i+1} − λ_i) = r (x[i+1] − x[i]) (λ[i] − λ[i+1])`, i.e. `κ̄ = -r .* diff(x) .* diff(λ)`. This is the classic result: the gradient with respect to a conductivity is minus the product of the primal and adjoint face differences, scaled by `r`.
+
+**Cost.** Primal: one O(N) factorization, one O(N) solve. Pullback: one O(N) solve plus one O(N) sweep. No AD touches the factorization; everything comes from the implicit identity.
+
+**Factorization reuse: valid, on three grounds.** (1) `A` depends on `κ` and `r` only, never on `u`, so the adjoint system uses the same matrix as the primal solve. (2) `A = Aᵀ` exactly by construction, so `A⁻ᵀ v̄ = A⁻¹ v̄` and `F \ v̄` is the adjoint solve; if the operator were not symmetric (upwinding, say), use `F' \ v̄`, still O(N) on the same factors. (3) `\` does not mutate the factors, so `F` can be reused for the primal and for any number of pulls. It would *not* be valid if `A` depended on `u` (a Picard iteration on a nonlinear operator): then `δA` would have an extra term.
+
+**r.** Per spec the rule returns `NoTangent()`. For completeness, the mathematical gradient is `ō = -⟨λ, Lx⟩ = -Σ_i κ_i g_i (λ_{i+1} − λ_i)`, which equals `Σ_i κ_i κ̄_i / r`.
+
+**Hand check (N = 2).** `κ = [0.5]`, `r = 1`, `u = [1, 0]`: `A = [[1.5, −0.5], [−0.5, 1.5]]`, `x = [0.75, 0.25]`. With `v̄ = e₁`: `λ = A⁻¹e₁ = [0.75, 0.25]`, which is exactly column 1 of `A⁻¹ = ∂x/∂u`, so `ū` is right. Exact solution `x₁(κ) = (1+κ)/(1+2κ)` gives `dx₁/dκ|_{0.5} = −1/(1+2κ)² = −0.25`, and the formula gives `κ̄₁ = 1·(0.25−0.75)·(0.75−0.25) = −0.25`. Signs and dimensions agree.
+
+## Edge cases
+
+- **κ ≥ 0 (physical case).** `A` is SPD: `uᵀAu = ‖u‖² + r Σ κ_i (u_{i+1}−u_i)²`, with eigenvalues in `[1, 1 + 4rκ_max]`. Never singular, bounded condition number, no pivoting ever goes wrong. Large `r` is safe.
+- **Negative κ.** Still symmetric, and the rule is exact for *any* nonsingular `A` (the derivation never used SPD). But `A` can become singular, e.g. for two cells `det A = 1 + 2rκ₁` vanishes at `κ₁ = −1/(2r)`. `factorize` for `Tridiagonal` corresponds to `lu(...; check = false)`, so the failure appears at solve time as `Inf`/`NaN` in `x` and the tangents, not as a factorization error. If negative κ is possible, check `issuccess(F)` after `factorize` and throw. Also, negative κ can make eigenvalues of `A` cross zero, so the step amplifies instead of smoothing and the time integration loses stability.
+- **Type stability.** One concrete float type `T = float(promote_type(...))` is fixed at the top; everything after (`Tridiagonal{T}`, its concrete `LU{T,Tridiagonal{T,Vector{T}}}`, `x`, the closure) is inferred per method specialization. The `Real`-typed signatures specialize per concrete call, so no dynamic dispatch in the loops.
+- **Float32.** Works end to end through LAPACK `sgttrf`/`sgttrs`, with about 7 digits. A FD test in Float32 needs a larger step (ε ≈ 1e-3) and looser tolerances; the test file assumes Float64. Mixed input (`Float32` u with `Float64` κ) computes in Float64 and `ProjectTo` casts each tangent back to its own input's element type, with the matching rounding at the Float32 boundary.
+- **Small N.** `n = 1`: `κ` must be empty, `A = [1]`, the step is the identity, `κ̄` is empty and `ū = v̄`. `n = 0` and a mismatched `length(κ)` throw `DimensionMismatch`.
+- **Cotangent forms.** `ZeroTangent`/`NoTangent` cotangents return zero tangents without touching the factorization; a non-array cotangent returns an explicit `ArgumentError` rather than a LAPACK crash.
+- **Views and offset arrays.** Inputs are read via broadcasting, so views work; tangents come back as plain 1-based `Vector`s (the ChainRules convention for array tangents), and `ProjectTo` restores each input's element type.
+- **Forward mode through the primal.** `Tridiagonal{Dual}` has no LAPACK path, so ForwardDiff falls back to generic LU (works, but slow). The supported differentiated path is reverse mode via this `rrule` (Zygote and Enzyme pick it up through ChainRules interchange).
+- **Micro-optimization.** If allocation matters, replace `F \ S.(v)` with `ldiv!(F, S.(v))`; the copy is fresh, so in-place solve is safe. Storage is a handful of length-N vectors plus the LU factors already inside the copied tridiagonal structure.

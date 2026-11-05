@@ -1,0 +1,73 @@
+## 1. Linearization
+
+Base state: H = H₀, B_x = −α, so S_x = −α. Write H = H₀ + h, so S_x = −α + h_x. Define
+
+D(H, S_x) = Γ H^(n+2) |S_x|^(n−1), so q = −D S_x.
+
+Perturb: H^(n+2) ≈ H₀^(n+2) + (n+2)H₀^(n+1) h, and f(S_x) = |S_x|^(n−1)S_x has f(−α) = −α^n, f′(−α) = n α^(n−1). Then to first order:
+
+q ≈ q₀ − n D₀ h_x + (n+2) Γ H₀^(n+1) α^n h,  where D₀ = Γ H₀^(n+2) α^(n−1).
+
+(The factor n appears because δq = −D₀ δS_x − S_x₀ δD, and both terms contribute to the h_x coefficient: 1 + (n−1) = n.)
+
+With H_t = −q_x + b and h_t = −δq_x:
+
+**h_t + c h_x = D_eff h_xx**, with
+
+- c = (n+2) Γ H₀^(n+1) α^n  (advection speed, ice flows downhill toward +x)
+- D_eff = n Γ H₀^(n+2) α^(n−1) = n D₀  (note the factor n in front of D₀)
+
+## 2. Forward Euler + centered differences, von Neumann
+
+Scheme (h_j^m at x_j = jΔx):
+
+h_j^(m+1) = h_j^m + Δt [ D_eff (h_{j+1} − 2h_j + h_{j−1})/Δx² − c (h_{j+1} − h_{j−1})/(2Δx) ]
+
+Insert h_j^m = G^m e^{iθj}, θ = ξΔx. With r = D_eff Δt/Δx² and P = c Δt/Δx:
+
+**G(θ) = 1 − 4r sin²(θ/2) − i P sin θ**
+
+|G|² = (1 − 4r s)² + 4P² s(1−s), where s = sin²(θ/2) ∈ [0,1]. Then
+
+|G|² − 1 = 4s [ (P² − 2r) + (4r² − P²) s ].
+
+The bracket is linear in s, so |G| ≤ 1 for all θ iff it is ≤ 0 at both endpoints:
+
+- s = 0: P² ≤ 2r
+- s = 1: 4r² − 2r ≤ 0 → r ≤ 1/2
+
+Exact stability conditions:
+
+**Δt ≤ Δx²/(2 D_eff)  and  Δt ≤ 2 D_eff / c²**
+
+## 3. Is Δt ≤ Δx²/(2 D_max) sufficient?
+
+No. Two reasons:
+
+1. The linearized diffusivity is **n·D**, not D. The correct diffusion bound is Δt ≤ Δx²/(2n D_max). The proposed rule is too large by a factor n; at θ = π, G = 1 − 4r = 1 − 2n, so |G| = 2n − 1 > 1 for n > 1 — unstable.
+2. It ignores the separate advective bound Δt ≤ 2 D_eff/c², which controls for large c (thick ice, steep slopes). Also D_max must be the maximum of ΓH^(n+2)|S_x|^(n−1) over the whole domain, since H and S_x evolve.
+
+## 4. Numbers (n = 3, Γ = 2A(ρg)³)
+
+ρg = 900 × 9.81 = 8829 Pa/m; (ρg)³ = 6.8823×10¹¹; Γ = 2 × 7.57×10⁻¹⁷ × 6.8823×10¹¹ = 1.042×10⁻⁴ m⁻³ a⁻¹ (time in years, since A is per year).
+
+| Quantity | Formula | Value |
+|---|---|---|
+| Γ | 2A(ρg)³ | 1.042×10⁻⁴ m⁻³ a⁻¹ |
+| D_max | Γ H₀⁵ α² | 3.334×10⁵ m²/a |
+| D_eff | n D_max | 1.000×10⁶ m²/a |
+| c | (n+2) Γ H₀⁴ α³ | 833.6 m/a |
+| Δt_diff | Δx²/(2 D_eff) | 4.998×10⁻³ a ≈ **1.82 d** |
+| Δt_adv | 2 D_eff/c² | 2.879 a ≈ 1051 d |
+| naive rule | Δx²/(2 D_max) | 1.500×10⁻² a ≈ 5.47 d (unstable — 3× too large) |
+| cell Péclet | cΔx/D_eff | 0.083 |
+
+**The diffusion condition controls: Δt ≤ ≈ 1.8 days** (the advective bound is ~576× looser here).
+
+Note: if your convention is Γ = 2A(ρg)ⁿ/(n+2) (vertical shape factor), divide Γ, D, c by 5; both Δt bounds multiply by 5 (Δt_diff ≈ 9.1 d) — the diffusion condition still controls.
+
+## 5. 2D staggered grid; face values of H
+
+- Staggered layout: H and S at cell centers, ∇S and fluxes q on x- and y-faces; the update is H_t = −(q_{i+1/2,j} − q_{i−1/2,j})/Δx − (q_{i,j+1/2} − q_{i,j−1/2})/Δy + b. The linearization is the same per direction, giving D_eff in both directions and advection speeds c_x, c_y = (n+2)ΓH₀^(n+1)|S|^(n−1) times the slope components.
+- Von Neumann now gives G = 1 − 4(r_x s_x + r_y s_y) − i(P_x sinθ_x + P_y sinθ_y), with r_x = D_effΔt/Δx² etc. Stability: **r_x + r_y ≤ 1/2** (square grid: Δt ≤ Δx²/(4 D_eff)) plus the generalized advective bound P_x² + P_y² ≤ 2(r_x + r_y). So the diffusion limit is twice as strict as in 1D on a square grid.
+- H at faces: centered average H_{i+1/2} = (H_i + H_{i+1})/2 keeps second-order accuracy and produces exactly the advection term c in the linearization. Upwinding H at faces (take the upstream cell) is first-order and adds numerical diffusion of order |q|Δx/(2H) ≈ cΔx/2, which damps the advective (P) modes and can relax the P² ≤ 2r constraint — but it does not change the diffusion limit Δt ≤ Δx²/(4 D_eff), and it smears the solution.

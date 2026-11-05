@@ -1,0 +1,103 @@
+## Setup
+
+Flat bed, S = H. Write the PDE in flux form:
+
+∂H/∂t = ∂F/∂x + b,  F(H, H_x; A) = Γ(A) H^(n+2) |H_x|^(n−1) H_x,  Γ = 2A(ρg)^n/(n+2).
+
+Define the diffusivity D := Γ H^(n+2) |H_x|^(n−1), so F = D·H_x. Note F depends on A twice: explicitly through Γ, and implicitly D depends on H and H_x with exponents n+2 and n−1. All three matter.
+
+## 1. Linearize the flux (all terms)
+
+F depends on H, H_x, A. One identity is needed: for g(p) = |p|^(n−1) p, g'(p) = n|p|^(n−1) for p ≠ 0 (check both signs of p: p>0 gives n·p^(n−1), p<0 gives n(−p)^(n−1)).
+
+- ∂F/∂H = (n+2) Γ H^(n+1) |H_x|^(n−1) H_x  (= (n+2) D H_x / H, but keep the ΓH^(n+1) form, see item 5)
+- ∂F/∂H_x = n Γ H^(n+2) |H_x|^(n−1) = n D
+- ∂F/∂A = (∂Γ/∂A) H^(n+2) |H_x|^(n−1) H_x = (Γ/A) H^(n+2) |H_x|^(n−1) H_x = F/A
+
+So the tangent linear model, keeping every term, is
+
+δH_t = ∂x[ (∂F/∂H) δH + (∂F/∂H_x) δH_x ] + δA ∂x(F/A),  with δH(x,0) = δH(0,t) = δH(L,t) = 0.
+
+Equivalent check via δD = D[(n+2) δH/H + (n−1) δH_x/H_x]: δF = D δH_x + H_x δD gives the same result (D + (n−1)D = nD). The split form divides by H and by H_x — a warning sign for item 5.
+
+## 2. Lagrangian and adjoint PDE
+
+𝓛 = J + ∫₀ᵀ ∫₀ᴸ λ ( H_t − ∂xF − b ) dx dt.
+
+Vary the state. δJ = ∫ (H(x,T) − Hobs) δH(x,T) dx. Two integrations by parts:
+
+- In time: ∫∫ λ δH_t = ∫ λ(x,T) δH(x,T) dx − ∫∫ λ_t δH (the t=0 end vanishes because δH(x,0)=0: H0 is data).
+- In space, twice: −∫∫ λ ∂x(δF) = −∫₀ᵀ [λ δF]₀ᴸ dt + ∫∫ (∂xλ)(∂F/∂H) δH + ∫∫ (∂xλ)(∂F/∂H_x) δH_x, then
+  ∫∫ (∂xλ)(∂F/∂H_x) δH_x = ∫₀ᵀ [(∂xλ)(∂F/∂H_x) δH]₀ᴸ dt − ∫∫ ∂x[(∂xλ)(∂F/∂H_x)] δH.
+
+Collect the interior δH coefficient and set it to zero:
+
+−λ_t + (∂xλ)(∂F/∂H) − ∂x[(∂xλ)(∂F/∂H_x)] = 0,
+
+**Adjoint PDE:**
+
+−∂λ/∂t = ∂x( n D ∂λ/∂x ) − (n+2) Γ H^(n+1) |H_x|^(n−1) H_x (∂λ/∂x).
+
+**Terminal condition** (coefficient of δH(x,T)): λ(x,T) = Hobs(x) − H(x,T).
+
+**Boundary conditions:** none are needed on λ. Two facts kill the boundary terms: δH(0,t)=δH(L,t)=0 (fixed state BC), and at x=0, L we have H=0, hence ∂F/∂H ∝ H^(n+1) = 0, ∂F/∂H_x ∝ H^(n+2) = 0, ∂F/∂A ∝ H^(n+2) = 0. The equation is degenerate parabolic at the margin (leading coefficient → 0), exactly like the forward SIA, and that is why no condition on λ is required. In particular, do not impose λ(0,t)=λ(L,t)=0: the terminal condition already fixes λ there (λ(0,T)=Hobs(0) − 0, generally nonzero).
+
+**Direction:** backward in time, from t = T to t = 0, using the stored forward H(x,t) and H_x(x,t) as data. In s = T−t it reads ∂_s λ = ∂x(nD λ_x) − (∂F/∂H) λ_x, a forward degenerate-parabolic problem with nonnegative diffusivity nD.
+
+## 3. Gradient
+
+Collect the δA terms of δ𝓛: −∫∫ λ ∂x(F/A) δA dx dt. Integrate by parts in x; the boundary term [λ F/A]₀ᴸ vanishes (H^(n+2) = 0 at the margins):
+
+**dJ/dA = ∫₀ᵀ ∫₀ᴸ (∂λ/∂x) (∂F/∂A) dx dt = (1/A) ∫₀ᵀ∫₀ᴸ Γ H^(n+2) |H_x|^(n−1) H_x (∂λ/∂x) dx dt = [2(ρg)^n/(n+2)] ∫₀ᵀ∫₀ᴸ H^(n+2) |H_x|^(n−1) H_x λ_x dx dt.**
+
+(If b or H0 depended on A there would be extra terms, −∫∫λ ∂b/∂A and +∫λ(x,0) ∂H0/∂A. Here there are none.)
+
+## 4. The "frozen diffusivity" adjoint
+
+They write F = D H_x and stop differentiating D. Their tangent model is δF = D δH_x only, so their adjoint is the self-adjoint diffusion equation with D as a given field:
+
+−∂λ̃/∂t = ∂x( D ∂λ̃/∂x ),  λ̃(x,T) = Hobs − H(x,T), backward in time.
+
+Compared to the true adjoint, missing:
+
+| Term in −λ_t | True | Frozen | Missing |
+|---|---|---|---|
+| Second-order | ∂x(nD λ_x) | ∂x(D λ_x) | (n−1)D inside the diffusion (for Glen n=3, 2/3 of the diffusivity) |
+| Zeroth-order | −(n+2)ΓH^(n+1)\|H_x\|^(n−1)H_x λ_x | absent | the entire drift term, i.e. the sensitivity of D to H via H^(n+2) |
+
+Note what is *not* missing: ∂F/∂A sees only the explicit Γ(A), so their F/A factor is right. All the damage is in λ̃, and the error is dJ/dA − dJ̃/dA = (1/A)∫∫ D H_x ∂x(λ − λ̃) dx dt.
+
+**Exact gradient of a different problem, or approximation?** Only an approximation, and a structural one:
+
+- λ̃ is the exact adjoint of a *different linear operator* (one Picard step: solve H_t = ∂x(D(x,t) H_x) + b with D taken as data). It is exact for that one-step update, not for the fixed point, which is the nonlinear solve you actually ran.
+- It is not the exact gradient of the frozen forward problem either. Once D is a prescribed field, the state equation contains no A at all, so the exact gradient of that problem is 0 — not the number they compute. Their number pairs λ̃ from one model with F/A from another; it is nobody's exact gradient in any useful sense.
+- The missing terms are O(1), not discretization error. Refining the grid does not shrink them; the frozen "gradient" converges to a wrong number. It is also not guaranteed to be a descent direction for J.
+
+## 5. Where the derivation needs care
+
+**Margins, H → 0.** The Jacobian entries all vanish there (∝ H^(n+1), H^(n+2)). That is exactly what kills the boundary terms and removes the need for a BC on λ — degeneration, not a Dirichlet condition. Practical points:
+
+- Compute ∂F/∂H as (n+2)ΓH^(n+1)|H_x|^(n−1)H_x, never as (n+2)D H_x/H: at a margin grid point that is 0/0.
+- Do not set λ = 0 at the margins; the terminal condition generically gives nonzero λ there, and imposing it would contradict λ(x,T).
+- Smoothness is only formal. Classical steady margins have H ~ √d (d = distance to margin), so H_x → ∞, and the margin moves in time. The adjoint coefficients still vanish (D ~ d^(3/2), drift coefficient ~ d^(1/2)) but their x-derivatives blow up, so the integration by parts is really a weak-form argument. The safe practical guarantee is to differentiate the discrete forward exactly as coded; the continuous derivation tells you what that discrete adjoint should converge to.
+
+**Points with H_x = 0 (divides).** The identity g'(p) = n|p|^(n−1) behaves as:
+
+- n > 1 (Glen n=3): fine. F_H_x → 0 at the divide, so the adjoint degenerates there too (−λ_t = 0 locally: λ is just constant in time at that point). No BC needed.
+- n = 1: fine, F_H_x = D = ΓH³, but AD through abs at exactly 0 typically yields a subgradient 0, while the true derivative is 1. Bug source.
+- n < 1: |p|^(n−1) blows up at p = 0; the linearization, hence the adjoint, does not exist classically there. Relevant in UDE settings if a learned parameter can drive an effective exponent below 1.
+- Never expand ∂D/∂H_x piecewise: the form (n−1)δH_x/H_x divides by zero at divides. Differentiate the product |H_x|^(n−1)H_x as one unit. And compute the power from |H_x| (a fractional power of a negative H_x gives NaN).
+
+One operational note: the backward run needs H and H_x at all times, so the forward trajectory must be stored or checkpointed.
+
+## Final equations
+
+Adjoint PDE (with D = ΓH^(n+2)|H_x|^(n−1)):
+
+−∂λ/∂t = ∂x( nD ∂λ/∂x ) − (n+2) Γ H^(n+1) |H_x|^(n−1) H_x (∂λ/∂x),  0 < x < L, 0 < t < T
+
+Terminal condition: λ(x,T) = Hobs(x) − H(x,T). No boundary condition at x = 0, L (the operator is degenerate there and the variation terms vanish because H = 0). Integrated backward in time, from t = T to t = 0.
+
+Gradient:
+
+dJ/dA = (1/A) ∫₀ᵀ ∫₀ᴸ Γ H^(n+2) |H_x|^(n−1) H_x (∂λ/∂x) dx dt = [2(ρg)^n/(n+2)] ∫₀ᵀ∫₀ᴸ H^(n+2) |H_x|^(n−1) H_x (∂λ/∂x) dx dt.

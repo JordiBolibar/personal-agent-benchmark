@@ -1,0 +1,93 @@
+## Setup
+
+Write the flux as a function of the state and its slope:
+
+F(H, H_x) = Γ H^(n+2) |H_x|^(n−1) H_x,  Γ = 2A(ρg)^n/(n+2),
+
+so the forward problem is H_t = ∂_x F(H, H_x) + b(x), with H(0,t)=H(L,t)=0, H(x,0)=H₀(x).
+
+The Lagrangian is
+
+L = J + ∫₀ᵀ∫₀ᴸ λ(x,t) [ H_t − ∂_x F(H,H_x) − b(x) ] dx dt.
+
+## 1. Linearized flux
+
+Let p = H_x. Since d/dp(|p|^(n−1) p) = n|p|^(n−1),
+
+∂F/∂H = Γ(n+2) H^(n+1) |p|^(n−1) p,
+∂F/∂p = Γ n H^(n+2) |p|^(n−1).
+
+So the full first variation of the flux, keeping every term, is
+
+δF = Γ(n+2) H^(n+1) |H_x|^(n−1) H_x δH  +  Γ n H^(n+2) |H_x|^(n−1) δH_x.
+
+With the diffusivity D = Γ H^(n+2)|H_x|^(n−1) this reads
+
+δF = n D δH_x + (n+2)(D H_x / H) δH,
+
+and the linearized forward equation is δH_t = ∂_x[ n D δH_x + (n+2)(D H_x/H) δH ].
+
+## 2. Adjoint PDE
+
+Integrate the Lagrangian by parts in t and x:
+
+∫∫ λ H_t dx dt = ∫ λ(x,T)H(x,T) dx − ∫ λ(x,0)H₀ dx − ∫∫ λ_t H dx dt,
+∫∫ λ ∂_x F dx dt = ∫ [λ F]₀ᴸ dt − ∫∫ λ_x F dx dt.
+
+Taking the variation δH (with δH(x,0)=0, δH(0,t)=δH(L,t)=0) and integrating the δH_x term by parts once more:
+
+δL = ∫ [H(x,T)−Hobs + λ(x,T)] δH(x,T) dx
+     + ∫∫ [ −λ_t + F_H λ_x − ∂_x(F_p λ_x) ] δH dx dt + (boundary terms).
+
+All boundary terms vanish: δH = 0 at x=0,L, and H=0 there makes F, F_H, F_p all zero anyway (every term carries a positive power of H). Stationarity gives:
+
+**Adjoint PDE**
+
+−∂λ/∂t = ∂/∂x( F_{H_x} ∂λ/∂x ) − F_H ∂λ/∂x
+        = ∂/∂x( n D λ_x ) − (n+2)(D H_x/H) λ_x,
+
+**Terminal condition** λ(x,T) = −(H(x,T) − Hobs(x)) = Hobs(x) − H(x,T),
+
+**Boundary conditions** λ(0,t) = λ(L,t) = 0.
+
+It is integrated **backward in time**, from t = T (where the terminal condition is known) to t = 0.
+
+## 3. Gradient dJ/dA
+
+Only F depends on A explicitly (b does not), so
+
+dJ/dA = ∫₀ᵀ∫₀ᴸ λ_x (∂F/∂A) dx dt,
+
+with ∂F/∂A = [2(ρg)^n/(n+2)] H^(n+2) |H_x|^(n−1) H_x = F/A. Hence
+
+dJ/dA = [2(ρg)^n/(n+2)] ∫₀ᵀ∫₀ᴸ λ_x H^(n+2) |H_x|^(n−1) H_x dx dt  =  (1/A) ∫₀ᵀ∫₀ᴸ λ_x F dx dt.
+
+## 4. Frozen-diffusivity adjoint
+
+If D is treated as independent of H, then ∂F/∂H is dropped; only ∂F/∂H_x = nD survives. The adjoint they get is
+
+−∂λ/∂t = ∂/∂x( n D λ_x ),  λ(x,T) = Hobs − H(x,T),  λ(0,t)=λ(L,t)=0.
+
+**Missing term:** the advection-like term
+
+− F_H λ_x = − Γ(n+2) H^(n+1) |H_x|^(n−1) H_x λ_x = − (n+2)(D H_x/H) λ_x,
+
+i.e. the entire sensitivity of the diffusivity to the ice thickness.
+
+Is it exact for another problem? Yes, but not for this one: it is the **exact adjoint of the frozen-coefficient linear problem** H_t = ∂_x(D H_x) + b with D prescribed (check: the adjoint of ∂_x(nD δH_x) is exactly ∂_x(nD λ_x)). For the original nonlinear SIA it is **only an approximation** of dJ/dA — it ignores how a change in A changes the flux through the H^(n+2) factor inside D, not just through the explicit Γ.
+
+## 5. Where care is needed
+
+- **Ice margins, H → 0:** D = ΓH^(n+2)|H_x|^(n−1) → 0, so the forward equation and the adjoint are **degenerate parabolic** there. Analytically the integration-by-parts boundary terms vanish automatically because F, F_H, F_p all vanish at H=0; the condition λ=0 at the margins is usually imposed for well-posedness/numerics but is not strictly forced by the variation. Numerically one regularizes (e.g. H → H+ε, |p| → sqrt(p²+ε²)) to avoid 0/0 forms like D/H and to keep the solver stable.
+- **Points with H_x = 0 (e.g. the summit):** |H_x|^(n−1) is non-smooth at p=0 for non-integer n (for Glen's n=3 it is |p|²p = p³, which is smooth). In general, n|p|^(n−1) is continuous for n>1 but not differentiable at p=0 when 1<n<2, so use a regularized absolute value or a subgradient there. Note D=0 at the summit as well, so both equations degenerate at that point; the adjoint advection coefficient F_H ∝ H_x also vanishes there, which keeps the transport term harmless.
+
+## Final equations
+
+Adjoint (integrated backward from t=T to t=0):
+
+−∂λ/∂t = ∂/∂x( n Γ H^(n+2) |H_x|^(n−1) ∂λ/∂x ) − Γ(n+2) H^(n+1) |H_x|^(n−1) H_x ∂λ/∂x,
+λ(x,T) = Hobs(x) − H(x,T),  λ(0,t) = λ(L,t) = 0.
+
+Gradient:
+
+dJ/dA = [2(ρg)^n/(n+2)] ∫₀ᵀ∫₀ᴸ ∂λ/∂x · H^(n+2) |H_x|^(n−1) H_x dx dt.

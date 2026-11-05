@@ -1,0 +1,115 @@
+## Julia implementation
+
+```julia
+"""
+    heat_step!(T::Matrix{Float64}, kappa::Float64, dt::Float64, dx::Float64)
+
+One explicit (FTCS) finite-difference timestep of the 2D heat equation
+
+    dT/dt = kappa * (T_xx + T_yy)
+
+on a uniform grid with the same spacing `dx` in both directions. All four
+edges use Neumann (zero-flux) boundary conditions, built with mirrored ghost
+cells. `T` is updated in place and also returned.
+
+Requires dx > 0 and dt <= dx^2 / (4*kappa) for stability (not checked here).
+Accuracy: first order in time, second order in space.
+"""
+function heat_step!(T::Matrix{Float64}, kappa::Float64, dt::Float64, dx::Float64)
+    nx, ny = size(T)
+    (nx > 0 && ny > 0) || return T          # nothing to do on an empty grid
+
+    # Diffusion number r = kappa*dt/dx^2 (assumes dx = dy).
+    r = kappa * dt / dx^2
+
+    # Every new value depends only on old values, so compute into a scratch
+    # field and copy back. This is the only allocation; hoist it out (and
+    # pass it in) if you run many steps in a hot loop.
+    Tnew = similar(T)
+
+    @inbounds for j in 1:ny                  # outer loop over columns
+        jm = max(j - 1, 1)                  # clamped neighbour indices give
+        jp = min(j + 1, ny)                 # the mirrored (zero-flux) ghosts
+        for i in 1:nx                      # inner loop along the fast axis
+            im = max(i - 1, 1)
+            ip = min(i + 1, nx)
+            Tnew[i, j] = T[i, j] +
+                r * (T[im, j] + T[ip, j] + T[i, jm] + T[i, jp] - 4.0 * T[i, j])
+        end
+    end
+
+    copyto!(T, Tnew)
+    return T
+end
+```
+
+Implementation notes:
+
+- Clamping the neighbour index is exactly the mirror rule. At `i = 1` the missing left neighbour is `T[1, j]` itself, so the second difference becomes `(T[2,j] - T[1,j]) / dx^2`, which is the discrete zero-flux condition. Corners and 1-cell-wide grids need no special casing (a single isolated cell is left unchanged, as it should be).
+- The step conserves `sum(T)` exactly: no heat leaves the box. Good sanity check in tests.
+- If `dx != dy`, the formula below changes; this code assumes one shared spacing, as the signature implies.
+
+### 1. Von Neumann stability condition
+
+The scheme is (FTCS), with `r = kappa*dt/dx^2`:
+
+```
+T[i,j]^(n+1) = T[i,j]^n + r * (T[i+1,j] + T[i-1,j] + T[i,j+1] + T[i,j-1] - 4*T[i,j])
+```
+
+Insert one Fourier mode of the error, with `I` the imaginary unit and phases per cell `θx = kx*dx`, `θy = ky*dx`:
+
+```
+T[i,j]^n = G^n * exp(I*(i*θx + j*θy))
+```
+
+The scheme is linear, so each mode evolves independently, `G -> G*T`. Substitution gives the amplification factor:
+
+```
+G = 1 + r*(exp(Iθx) + exp(-Iθx) + exp(Iθy) + exp(-Iθy) - 4)
+  = 1 + 2r*(cos θx + cos θy - 2)
+  = 1 - 4r*[ sin²(θx/2) + sin²(θy/2) ]
+```
+
+Stability means `|G| <= 1` for every mode:
+
+- Upper side: `G <= 1` holds automatically, because `r >= 0`.
+- Lower side: we need `1 - 4r*S >= -1`, where `S = sin²(θx/2) + sin²(θy/2)`.
+
+The largest `S` over all modes the grid can carry is `S = 2`, reached by the shortest representable wave, `θx = θy = π` (wavelength `2*dx`, the checkerboard pattern). So the worst case decides:
+
+```
+1 - 8r >= -1   <=>   r <= 1/4   <=>   dt <= dx² / (4*kappa)
+```
+
+Two remarks:
+
+- Von Neumann analysis formally assumes a periodic or infinite grid. The mirror closure does not relax the bound: with it, the 2D operator is the Kronecker sum of two 1D Neumann Laplacians with spectra in `[-4/dx², 0]` each, so the 2D spectrum sits in `[-8/dx², 0]` and `r <= 1/4` bounds every eigenmode.
+- At `r = 1/4` exactly, the checkerboard has `G = -1`: it is not damped, only echoed. Use `dt` strictly below the limit.
+- For an anisotropic grid the condition is `dt <= 1 / (2*kappa*(1/dx² + 1/dy²))`.
+
+### 2. What changes in 3D
+
+- The stencil becomes 7 points (self plus 6 neighbours), with `-6*T` in the update.
+- The amplification factor gains a third sine term, and its maximum becomes 3:
+
+```
+G = 1 - 4r*[ sin²(θx/2) + sin²(θy/2) + sin²(θz/2) ]  =>  r <= 1/6  =>  dt <= dx² / (6*kappa)
+```
+
+- General rule in `d` dimensions: `dt <= dx² / (2*d*kappa)`.
+- Practical consequence: the allowed `dt` shrinks as `1/d` while the per-step work grows, so a pure explicit run scales badly with dimension. This is why in 3D one usually switches to unconditionally stable schemes (implicit, Crank–Nicolson, or ADI such as Douglas–Gunn), trading the `dt` limit for linear solves. The clamped-index Neumann closure extends to 3D unchanged.
+
+### 3. What happens numerically when the condition is violated
+
+- The checkerboard mode gets `G = 1 - 8r < -1`: its magnitude grows by `|G|` each step and its sign flips every step.
+- Growth is exponential in the step count. Rounding errors seed every mode at around `1e-16`, so the instability always shows up, even from perfectly smooth data. First the solution looks fine, because the smooth (long-wavelength) modes still decay. Then a node-to-node zigzag appears, doubles every few steps, and quickly overflows to `Inf` and `NaN`.
+- The maximum principle breaks at the same threshold. For `r <= 1/4` each new value is a convex combination of the old self and neighbours (weights `1-4r` and `r`, all non-negative): no new extrema, no negative temperatures from positive data. Past `r = 1/4` the negative centre weight creates overshoots, which is the same mechanism as the blow-up.
+- The result has no physical meaning: the heat equation only damps modes, so any growth is a pure numerical artifact.
+
+### 4. Computational complexity per timestep
+
+- Time: `O(N)` with `N = nx*ny`. Each node does one 5-point stencil, a fixed flop count, in a single pass.
+- In practice it is memory-bandwidth bound, not flop bound: about `N` reads and `N` writes per step. The loop order (`i` inner) matches Julia's column-major layout, so access is cache friendly.
+- Extra memory: one `N`-sized scratch field per call, the only allocation. It can be hoisted out for long runs, or reduced to `O(nx)` with a row-by-row sweep that keeps a copy of the previous row, at the cost of more complex code.
+- For `M` steps the total cost is `O(M*N)`, with `M` fixed by the stability limit at roughly `T_end * 4*kappa / dx²` steps.
